@@ -14,22 +14,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Button, Card, CardContent, Stack, Step, StepLabel, Stepper, Typography } from "@mui/material";
+import { Box, Button, Card, CardContent, Skeleton, Stack, Step, StepLabel, Stepper, Typography } from "@mui/material";
 import { Award, Info } from "lucide-react";
 
-import type { Application } from "@/types/types";
+import DOMPurify from "dompurify";
+import { useState } from "react";
+
+import type { Application, ApplicationInterview, DocumentsStatus, OfferLetter } from "@/types/types";
 import ApplicationStatusBadge from "@component/careers/ApplicationStatusBadge";
 import Callout from "@component/common/Callout";
+import { orangeTextOf } from "@config/brand";
 import { ApplicationStatus } from "@config/constant";
-import { cardSx } from "@utils/styles";
+import { cardSx, pillButtonSx } from "@utils/styles";
 import {
   STAGES,
   daysLeftText,
   formatDate,
+  historyOf,
   isOffer,
   nextStepOf,
   offerDeadlineOf,
   trackerOf,
+  upcomingInterviewOf,
 } from "@view/applications/applicationHelpers";
 import InterviewsSection from "@view/applications/components/InterviewsSection";
 import OfferActions from "@view/applications/components/OfferActions";
@@ -43,6 +49,14 @@ interface ApplicationDetailsProps {
   canAcceptOffer: boolean;
   onAcceptOffer: () => void;
   onDeclineOffer: () => void;
+  onSubmitDocuments: () => void;
+  // The offer letter that was sent, when the ATS has it.
+  offerLetter: OfferLetter | null;
+  // The interviews of the application, past and upcoming.
+  interviews: ApplicationInterview[];
+  // Documents submission status; undefined while loading, null when it failed.
+  documentsStatus: DocumentsStatus | null | undefined;
+  onRetryDocumentsStatus: () => void;
 }
 
 const ApplicationDetails = ({
@@ -52,8 +66,16 @@ const ApplicationDetails = ({
   canAcceptOffer,
   onAcceptOffer,
   onDeclineOffer,
+  onSubmitDocuments,
+  offerLetter,
+  interviews,
+  documentsStatus,
+  onRetryDocumentsStatus,
 }: ApplicationDetailsProps) => {
+  const [letterOpen, setLetterOpen] = useState(false);
   const actionNeeded = isOffer(application);
+  // An upcoming interview is shown in orange.
+  const interviewComing = upcomingInterviewOf(application, interviews) !== undefined;
   const deadline = actionNeeded ? offerDeadlineOf(application) : null;
   const offerExpired = deadline !== null && deadline.daysLeft < 0;
   const { activeStep, errorStep } = trackerOf(application);
@@ -77,10 +99,13 @@ const ApplicationDetails = ({
         </Stack>
         <Typography
           fontSize="0.95rem"
-          fontWeight={actionNeeded ? 700 : 500}
-          sx={{ mt: 1.5, color: actionNeeded ? "#ff6700" : "text.secondary" }}
+          fontWeight={actionNeeded || interviewComing ? 700 : 500}
+          sx={{
+            mt: 1.5,
+            color: (theme) => (actionNeeded || interviewComing ? orangeTextOf(theme) : theme.palette.text.secondary),
+          }}
         >
-          {nextStepOf(application)}
+          {nextStepOf(application, interviews)}
         </Typography>
       </Box>
 
@@ -133,10 +158,83 @@ const ApplicationDetails = ({
             <Typography fontWeight={700} fontSize="0.95rem" color="text.primary">
               You accepted this offer.
             </Typography>
-            <Typography fontSize="0.9rem" color="text.primary">
-              The hiring team will contact you with the next steps.
-            </Typography>
+            {documentsStatus === undefined ? (
+              <Skeleton variant="rounded" width={170} height={40} sx={{ borderRadius: "999px", mt: 1.5 }} />
+            ) : documentsStatus === null ? (
+              <>
+                <Typography fontSize="0.9rem" color="text.primary" mt={0.5}>
+                  We could not check whether your documents were submitted.
+                </Typography>
+                <Button variant="outlined" onClick={onRetryDocumentsStatus} sx={{ ...pillButtonSx, px: 3, mt: 1.5 }}>
+                  Try again
+                </Button>
+              </>
+            ) : documentsStatus.submitted ? (
+              <>
+                <Typography fontSize="0.9rem" color="text.primary">
+                  We received your details and documents. The hiring team will contact you with the next steps.
+                </Typography>
+                {documentsStatus.canEdit ? (
+                  <>
+                    {documentsStatus.editableUntil && (
+                      <Typography fontSize="0.9rem" color="text.primary" mt={0.5}>
+                        You can make changes until{" "}
+                        {new Date(documentsStatus.editableUntil).toLocaleDateString(undefined, {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                        .
+                      </Typography>
+                    )}
+                    <Button variant="outlined" onClick={onSubmitDocuments} sx={{ ...pillButtonSx, px: 3, mt: 1.5 }}>
+                      Edit submission
+                    </Button>
+                  </>
+                ) : (
+                  <Typography fontSize="0.9rem" color="text.primary" mt={0.5}>
+                    {documentsStatus.editableUntil
+                      ? "The time to make changes has ended."
+                      : "Please contact the hiring team if something needs to change."}
+                  </Typography>
+                )}
+              </>
+            ) : (
+              <>
+                <Typography fontSize="0.9rem" color="text.primary">
+                  Please submit the documents we need for your onboarding. The hiring team will contact you with the
+                  next steps.
+                </Typography>
+                <Button variant="contained" onClick={onSubmitDocuments} sx={{ ...pillButtonSx, px: 3, mt: 1.5 }}>
+                  Submit documents
+                </Button>
+              </>
+            )}
           </Callout>
+        )}
+
+        {offerLetter && (
+          <Box sx={{ mb: 3, p: 2, border: "1px solid", borderColor: "divider", borderRadius: "8px" }}>
+            <Typography fontWeight={700} fontSize="0.95rem" color="text.primary">
+              Your offer letter
+            </Typography>
+            <Typography fontSize="0.9rem" color="text.primary" mt={0.5} sx={{ wordBreak: "break-word" }}>
+              {offerLetter.subject}
+            </Typography>
+            <Typography fontSize="0.85rem" color="text.secondary">
+              Sent on {formatDate(offerLetter.sentOn)}
+              {offerLetter.threadId && ` · Email reference: ${offerLetter.threadId}`}
+            </Typography>
+            <Button size="small" onClick={() => setLetterOpen((open) => !open)} sx={{ fontWeight: 600, mt: 1, ml: -1 }}>
+              {letterOpen ? "Hide letter" : "Show letter"}
+            </Button>
+            {letterOpen && (
+              <Box
+                sx={{ mt: 1, fontSize: "0.9rem", overflowX: "auto", "& img": { maxWidth: "100%" } }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(offerLetter.html) }}
+              />
+            )}
+          </Box>
         )}
 
         {application.status === ApplicationStatus.OfferDeclined && (
@@ -155,9 +253,9 @@ const ApplicationDetails = ({
           </Callout>
         )}
 
-        <InterviewsSection interviews={application.interviews ?? []} />
+        <InterviewsSection interviews={interviews} />
 
-        <ProgressHistory timeline={application.timeline ?? []} />
+        <ProgressHistory entries={historyOf(application, interviews)} />
 
         {jobOpen && (
           <Button size="small" onClick={() => onOpenJob(application.jobId)} sx={{ fontWeight: 600 }}>

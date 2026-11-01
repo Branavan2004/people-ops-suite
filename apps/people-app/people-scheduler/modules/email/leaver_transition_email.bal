@@ -27,11 +27,13 @@ import ballerina/time;
 public isolated function notifyLeaverAutoTransition(database:LeaverTransition[] transitions) returns error? {
     string employeeListHtml = buildTransitionRows(transitions);
 
-    string runDate = time:utcToString(time:utcNow()).substring(0, 10);
+    [string, string] [summaryDate, heading] = summaryDateAndHeading(
+            from database:LeaverTransition t in transitions select t.finalDayOfEmployment,
+            from database:LeaverTransition t in transitions select t.workLocation);
 
     map<string> keyValues = {
         APP_NAME: appName,
-        RUN_DATE: runDate,
+        SUMMARY_DATE: summaryDate,
         COUNT: transitions.length().toString(),
         EMPLOYEE_LIST: employeeListHtml,
         YEAR: time:utcToCivil(time:utcNow()).year.toString()
@@ -49,7 +51,8 @@ public isolated function notifyLeaverAutoTransition(database:LeaverTransition[] 
     EmailPayload emailPayload = {
         to: recipients,
         'from: emailServiceConfig.'from,
-        subject: string `Employee Offboarding Alert (${runDate}): ${transitions.length()} employee(s) transitioned to Left`,
+        subject: string `Employee Offboarding Alert (${heading}): ` +
+            string `${transitions.length()} employee(s) transitioned to Left`,
         template: boundTemplate
     };
 
@@ -68,7 +71,8 @@ public isolated function notifyLeaverAutoTransition(database:LeaverTransition[] 
         log:printError(customError, responseBody = responseBody is json ? responseBody.toJsonString() : responseBody.message());
         return error(customError);
     }
-    log:printInfo(string `Leaver auto-transition summary email sent on ${runDate} for ${transitions.length()} leaver(s)`);
+    log:printInfo(string `Leaver auto-transition summary email sent for ${summaryDate}` +
+            string ` with ${transitions.length()} leaver(s)`);
 }
 
 # Build the `<tbody>` rows for the transitioned-employees table, latest final day of employment
@@ -96,7 +100,7 @@ isolated function buildTransitionRows(database:LeaverTransition[] transitions) r
         if t.finalDayOfEmployment != currentDate {
             currentDate = t.finalDayOfEmployment;
             int dateCount = countsByDate[currentDate] ?: 0;
-            rows += string `<tr><td colspan="4" style="padding:9px 16px; background-color:#eef2f6;` +
+            rows += string `<tr><td colspan="5" style="padding:9px 16px; background-color:#eef2f6;` +
                 string ` border-top:1px solid #d8dfe6; border-bottom:1px solid #d8dfe6; font-size:13px;` +
                 string ` font-weight:bold; color:#33455c;">` +
                 string `${htmlEscape(formatDisplayDate(currentDate))} <span style="font-weight:normal; color:#6b7a8c;">` +
@@ -106,6 +110,7 @@ isolated function buildTransitionRows(database:LeaverTransition[] transitions) r
             string `<td style="${cellBase} padding-left:16px; white-space:nowrap;">${htmlEscape(t.employeeId)}</td>` +
             string `<td style="${cellBase}">${htmlEscape(t.firstName)} ${htmlEscape(t.lastName)}</td>` +
             string `<td style="${cellBase}">${htmlEscape(t.workEmail)}</td>` +
+            string `<td style="${cellBase}">${htmlEscape(database:locationLabel(t.workLocation, t.timeZone))}</td>` +
             string `<td align="right" style="${cellBase} padding-right:16px; white-space:nowrap;` +
             string ` color:#7a8899;">${htmlEscape(formatDisplayDate(t.finalDayOfEmployment))}</td>` +
             string `</tr>`;

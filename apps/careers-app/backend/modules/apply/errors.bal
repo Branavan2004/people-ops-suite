@@ -16,7 +16,7 @@
 
 import ballerina/http;
 
-# The response for an application the vacancy service did not accept. Its own reply is never passed on.
+# The response for an application the ATS did not accept. Its own reply is never passed on.
 public isolated function applyFailure(int upstreamStatus)
         returns http:NotFound|http:Conflict|http:BadRequest|http:GatewayTimeout|http:BadGateway {
     match upstreamStatus {

@@ -19,10 +19,13 @@ import { PayloadAction, createAsyncThunk, createSlice, isRejected } from "@redux
 import {
   Application,
   ApplicationFeedback,
+  ApplicationInterview,
   CandidateProfile,
+  DocumentsStatus,
   EditableProfileFields,
   Job,
   OfferAnswer,
+  OfferLetter,
   State,
 } from "@/types/types";
 import {
@@ -41,6 +44,43 @@ import {
   fetchVacancyDetail,
 } from "@utils/vacancyService";
 
+// The fields of ApplicationExtras that are loaded from the backend.
+export type ExtrasField = "offerLetter" | "interviews" | "documentsStatus";
+
+// When a field was loaded, and the application's status and last change at that time.
+export interface LoadedMark {
+  at: number;
+  version: string;
+}
+
+// What the application page loads for one application; a field is missing until it has been loaded once.
+export interface ApplicationExtras {
+  offerLetter?: OfferLetter | null;
+  interviews?: ApplicationInterview[];
+  // Undefined while loading, null when the check failed.
+  documentsStatus?: DocumentsStatus | null;
+  // Set when a load succeeded; a failed or cleared field has no mark and is loaded again.
+  loaded?: Partial<Record<ExtrasField, LoadedMark>>;
+}
+
+// How long a loaded field is used without asking the backend again.
+export const EXTRAS_FRESH_MS = 5 * 60_000;
+
+// Changes when the application moves on, which makes what was loaded for it out of date.
+export const extrasVersionOf = (application: Application): string =>
+  `${application.status}|${application.updatedDate ?? ""}`;
+
+// Whether a field was loaded for this version of the application, and recently enough to be used as it is.
+export function isExtrasFresh(
+  extras: ApplicationExtras | undefined,
+  field: ExtrasField,
+  version: string,
+  now: number = Date.now(),
+): boolean {
+  const mark = extras?.loaded?.[field];
+  return extras?.[field] !== undefined && mark !== undefined && mark.version === version && now - mark.at < EXTRAS_FRESH_MS;
+}
+
 interface CareersState {
   profile: CandidateProfile;
   profileState: State;
@@ -51,16 +91,19 @@ interface CareersState {
   orgStructureState: State;
   applications: Application[];
   applicationsState: State;
+  // The interviews, offer letter and documents status of each opened application, by application id, kept so a page
+  // that is opened again shows them at once.
+  applicationExtras: Record<string, ApplicationExtras>;
   // Applications whose feedback request the candidate dismissed.
   dismissedFeedbackIds: string[];
-  // True when the backend refused the access token, so the candidate has to sign in again.
+  // True when the backend refused the access token.
   sessionExpired: boolean;
-  // Goes up each time the candidate's data is cleared, so requests started before it can be told apart.
+  // Counts the clears of the candidate's data.
   sessionGeneration: number;
   savedJobIds: string[];
 }
 
-// The name of the error a request ends with when the candidate's data was cleared while it was running.
+// Error name of a request that ended after the candidate's data was cleared.
 const STALE_SESSION_ERROR = "StaleSessionError";
 
 const isSessionExpired = (error: { name?: string }) => error.name === SESSION_EXPIRED_ERROR;
@@ -86,11 +129,11 @@ const initialState: CareersState = {
   orgStructureState: State.idle,
   applications: [],
   applicationsState: State.idle,
+  applicationExtras: {},
   dismissedFeedbackIds: [],
   sessionExpired: false,
   sessionGeneration: 0,
-  // Save state is local/in-memory only -- not yet persisted to the backend,
-  // so it resets on refresh.
+  // Loaded from the browser on sign-in.
   savedJobIds: [],
 };
 
@@ -109,8 +152,7 @@ export const loadJobDetail = createAsyncThunk(
   },
 );
 
-// Builds a thunk for a signed-in candidate's request. If the candidate's data is cleared while the request is running,
-// the request ends as a stale error, so a late response never writes the previous candidate's data into the store.
+// Builds a signed-in request; a response arriving after the data was cleared is dropped as stale.
 function userRequest<Arg, Result>(type: string, call: (arg: Arg) => Promise<Result>) {
   return createAsyncThunk<Result, Arg>(type, async (arg, { getState }) => {
     const generation = () => (getState() as { careers: CareersState }).careers.sessionGeneration;
@@ -157,10 +199,31 @@ export const respondToOffer = userRequest(
     respondToOfferApi(accessToken, applicationId, answer),
 );
 
-export const CareersSlice = createSlice({
+const CareersSlice = createSlice({
   name: "careers",
   initialState,
   reducers: {
+    // Replaces the saved jobs.
+    setSavedJobs: (state, action: PayloadAction<string[]>) => {
+      state.savedJobIds = action.payload;
+    },
+    // Keeps what was loaded for an application. A reply that arrives after the candidate's data was cleared, which
+    // the generation tells, is dropped.
+    setApplicationExtras: (
+      state,
+      action: PayloadAction<{ id: string; generation: number; extras: ApplicationExtras }>,
+    ) => {
+      const { id, generation, extras } = action.payload;
+      if (generation !== state.sessionGeneration) return;
+      const { loaded, ...fields } = extras;
+      const existing = state.applicationExtras[id];
+      state.applicationExtras[id] = {
+        ...existing,
+        ...fields,
+        // The marks of other fields stay.
+        ...(loaded && { loaded: { ...existing?.loaded, ...loaded } }),
+      };
+    },
     toggleSaveJob: (state, action: PayloadAction<string>) => {
       const idx = state.savedJobIds.indexOf(action.payload);
       if (idx >= 0) {
@@ -205,6 +268,7 @@ export const CareersSlice = createSlice({
       state.profileState = State.idle;
       state.applications = [];
       state.applicationsState = State.idle;
+      state.applicationExtras = {};
       state.dismissedFeedbackIds = [];
       state.sessionExpired = false;
       state.sessionGeneration += 1;
@@ -268,7 +332,7 @@ export const CareersSlice = createSlice({
         const index = state.applications.findIndex((a) => a.id === action.payload.id);
         if (index >= 0) state.applications[index] = action.payload;
       })
-      // Any signed-in request the backend refuses with a 401 asks the user to sign in again.
+      // A 401 on any signed-in request ends the session.
       .addMatcher(
         isRejected(loadProfile, updateProfile, loadApplications, sendFeedback, respondToOffer),
         (state, action) => {
@@ -279,6 +343,8 @@ export const CareersSlice = createSlice({
 });
 
 export const {
+  setApplicationExtras,
+  setSavedJobs,
   toggleSaveJob,
   loadFailed,
   retryLoad,
@@ -289,4 +355,5 @@ export const {
   dismissFeedback,
   clearUserData,
 } = CareersSlice.actions;
+
 export default CareersSlice.reducer;

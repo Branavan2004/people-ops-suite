@@ -17,66 +17,27 @@
 import { BasicUserInfo, DecodedIDTokenPayload } from "@asgardeo/auth-spa";
 import { PayloadAction, createSlice } from "@reduxjs/toolkit";
 
-import { State } from "@/types/types";
-
-export enum Role {
-  CANDIDATE = "CANDIDATE",
-  ADMIN = "ADMIN",
-}
-
-interface ExtendedDecodedIDTokenPayload extends DecodedIDTokenPayload {
-  groups?: string[];
-}
-
 interface AuthState {
-  status: State;
-  mode: "active" | "maintenance";
-  statusMessage: string | null;
   userInfo: BasicUserInfo | null;
-  decodedIdToken: ExtendedDecodedIDTokenPayload | null;
-  roles: Role[];
-}
-
-interface AuthData {
-  userInfo: BasicUserInfo;
-  decodedIdToken: ExtendedDecodedIDTokenPayload;
+  decodedIdToken: DecodedIDTokenPayload | null;
 }
 
 const initialState: AuthState = {
-  status: State.idle,
-  mode: "active",
-  statusMessage: null,
   userInfo: null,
   decodedIdToken: null,
-  roles: [],
 };
 
-export const authSlice = createSlice({
+const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    setUserAuthData: (state, action: PayloadAction<AuthData>) => {
+    // Keeps the signed-in user's details.
+    setUserAuthData: (state, action: PayloadAction<AuthState>) => {
       state.userInfo = action.payload.userInfo;
       state.decodedIdToken = action.payload.decodedIdToken;
-      state.status = State.success;
-      // All authenticated users get CANDIDATE role
-      state.roles = [Role.CANDIDATE];
-    },
-    setAuthError: (state) => {
-      state.status = State.failed;
-      state.statusMessage = "Authentication failed. Please try again.";
-      state.userInfo = null;
-      state.decodedIdToken = null;
-      state.roles = [];
-    },
-    setAuthSuccess: (state) => {
-      state.status = State.success;
-      if (state.roles.length === 0) {
-        state.roles = [Role.CANDIDATE];
-      }
     },
   },
 });
 
-export const { setUserAuthData, setAuthError, setAuthSuccess } = authSlice.actions;
+export const { setUserAuthData } = authSlice.actions;
 export default authSlice.reducer;

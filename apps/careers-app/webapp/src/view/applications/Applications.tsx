@@ -19,29 +19,42 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { type ApplicationFeedback, type OfferAnswer, State } from "@/types/types";
+import {
+  type ApplicationFeedback,
+  type ApplicationInterview,
+  type DocumentsStatus,
+  type OfferAnswer,
+  type OfferLetter,
+  State,
+} from "@/types/types";
 import CenteredSpinner from "@component/common/CenteredSpinner";
 import PageContainer from "@component/common/PageContainer";
 import { ApplicationStatus, OFFER_CONFLICT_ERROR, OFFER_EXPIRED_ERROR, SnackMessage } from "@config/constant";
 import { useAppAuthContext } from "@context/AuthContext";
 import {
-  applicationsFailed,
+  type ApplicationExtras,
+  type LoadedMark,
+  extrasVersionOf,
+  isExtrasFresh,
   dismissFeedback,
-  loadApplications,
   refreshApplications,
   respondToOffer,
   retryApplications,
   sendFeedback,
+  setApplicationExtras,
 } from "@slices/careersSlice/careers";
 import { enqueueSnackbarMessage } from "@slices/commonSlice/common";
 import { RootState, useAppDispatch, useAppSelector } from "@slices/store";
 import { jobPath } from "@utils/jobFilterUtils";
+import { fetchDocumentsStatus, fetchInterviews, fetchOfferLetter } from "@utils/profileService";
 import AcceptOfferDialog from "@view/applications/components/AcceptOfferDialog";
 import ApplicationDetails from "@view/applications/components/ApplicationDetails";
 import ApplicationList from "@view/applications/components/ApplicationList";
 import DeclineOfferDialog from "@view/applications/components/DeclineOfferDialog";
 import RejectionFeedbackDialog from "@view/applications/components/RejectionFeedbackDialog";
 import WelcomeDialog from "@view/applications/components/WelcomeDialog";
+
+const NO_INTERVIEWS: ApplicationInterview[] = [];
 
 const Applications = () => {
   const navigate = useNavigate();
@@ -54,13 +67,6 @@ const Applications = () => {
 
   // The list, or one application's details when the URL has an id.
   const { id: applicationId } = useParams<{ id: string }>();
-
-  useEffect(() => {
-    if (applicationsState !== State.idle) return;
-    getToken()
-      .then((token) => dispatch(loadApplications(token)))
-      .catch(() => dispatch(applicationsFailed()));
-  }, [applicationsState, dispatch, getToken]);
 
   const selectedApplication = applicationId ? applications.find((a) => a.id === applicationId) : undefined;
   const stillLoading = applicationsState === State.idle || applicationsState === State.loading;
@@ -86,6 +92,88 @@ const Applications = () => {
     }
   };
 
+  // What was loaded for the opened application, kept in the store so the page shows it at once when opened again.
+  const selectedId = selectedApplication?.id;
+  const extras = useAppSelector((state: RootState) => (selectedId ? state.careers.applicationExtras[selectedId] : undefined));
+  const generation = useAppSelector((state: RootState) => state.careers.sessionGeneration);
+  const interviews = extras?.interviews ?? NO_INTERVIEWS;
+  // Undefined while the check is loading, null when it failed.
+  const documentsStatus: DocumentsStatus | null | undefined = extras?.documentsStatus;
+  const keep = (id: string, loaded: ApplicationExtras) =>
+    dispatch(setApplicationExtras({ id, generation, extras: loaded }));
+
+  // What was loaded is used as it is until the application moves on or the time limit passes; any other visit only
+  // shows it, and the page asks the backend again when it is missing, failed or out of date.
+  const version = selectedApplication ? extrasVersionOf(selectedApplication) : "";
+  const markLoaded = (): LoadedMark => ({ at: Date.now(), version });
+
+  const hasOffer =
+    selectedApplication?.status === ApplicationStatus.Offer ||
+    selectedApplication?.status === ApplicationStatus.OfferAccepted;
+  // The stored letter is hidden once the offer is declined or the application moves on, since it stays in the store.
+  const offerLetter: OfferLetter | null = hasOffer ? (extras?.offerLetter ?? null) : null;
+
+  // The offer letter, shown once the candidate has an offer or has accepted one; a failed load shows nothing.
+  useEffect(() => {
+    if (!selectedId || !hasOffer || isExtrasFresh(extras, "offerLetter", version)) return;
+    let cancelled = false;
+    getToken()
+      .then((token) => fetchOfferLetter(token, selectedId))
+      .then((letter) => {
+        if (!cancelled) keep(selectedId, { offerLetter: letter, loaded: { offerLetter: markLoaded() } });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, hasOffer, getToken, generation, version]);
+
+  // The interviews of the opened application, past and upcoming; none when they cannot be loaded.
+  useEffect(() => {
+    if (!selectedId || isExtrasFresh(extras, "interviews", version)) return;
+    let cancelled = false;
+    getToken()
+      .then((token) => fetchInterviews(token, selectedId))
+      .then((loaded) => {
+        if (!cancelled) keep(selectedId, { interviews: loaded, loaded: { interviews: markLoaded() } });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, getToken, generation, version]);
+
+  // Raised to ask for the documents check again after it failed.
+  const [documentsStatusAttempt, setDocumentsStatusAttempt] = useState(0);
+  const hasAcceptedOffer = selectedApplication?.status === ApplicationStatus.OfferAccepted;
+
+  // A retry shows the loading state again, for the opened application only.
+  const retryDocumentsStatus = () => {
+    if (selectedId) keep(selectedId, { documentsStatus: undefined });
+    setDocumentsStatusAttempt((current) => current + 1);
+  };
+
+  // Whether the documents were already submitted. A status already known stays on screen while it is checked again.
+  useEffect(() => {
+    if (!selectedId || !hasAcceptedOffer || isExtrasFresh(extras, "documentsStatus", version)) return;
+    let cancelled = false;
+    getToken()
+      .then((token) => fetchDocumentsStatus(token, selectedId))
+      .then((loaded) => {
+        if (!cancelled) keep(selectedId, { documentsStatus: loaded, loaded: { documentsStatus: markLoaded() } });
+      })
+      // A failed check is kept apart from "not submitted", and can be tried again.
+      .catch(() => {
+        if (!cancelled) keep(selectedId, { documentsStatus: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, hasAcceptedOffer, getToken, generation, documentsStatusAttempt, version]);
+
   const [offerDialog, setOfferDialog] = useState<"accept" | "decline" | "welcome" | null>(null);
   const [respondingToOffer, setRespondingToOffer] = useState(false);
 
@@ -104,7 +192,7 @@ const Applications = () => {
     } catch (error) {
       const name = (error as { name?: string }).name;
       if (name === OFFER_CONFLICT_ERROR || name === OFFER_EXPIRED_ERROR) {
-        // The offer is no longer open, so close the dialog and load the real state.
+        // Closes the dialog and loads the real state.
         setOfferDialog(null);
         dispatch(refreshApplications());
         const message = name === OFFER_EXPIRED_ERROR ? SnackMessage.error.offerExpired : SnackMessage.error.offerConflict;
@@ -136,7 +224,11 @@ const Applications = () => {
         />
       )}
       {selectedApplication && offerDialog === "welcome" && (
-        <WelcomeDialog jobTitle={selectedApplication.jobTitle} onClose={() => setOfferDialog(null)} />
+        <WelcomeDialog
+          jobTitle={selectedApplication.jobTitle}
+          onSubmitDocuments={() => navigate(`/applications/${selectedApplication.id}/documents`)}
+          onClose={() => setOfferDialog(null)}
+        />
       )}
       {selectedApplication && feedbackDue && (
         <RejectionFeedbackDialog
@@ -167,6 +259,11 @@ const Applications = () => {
               canAcceptOffer={!applications.some((a) => a.status === ApplicationStatus.OfferAccepted)}
               onAcceptOffer={() => setOfferDialog("accept")}
               onDeclineOffer={() => setOfferDialog("decline")}
+              onSubmitDocuments={() => navigate(`/applications/${selectedApplication.id}/documents`)}
+              offerLetter={offerLetter}
+              interviews={interviews}
+              documentsStatus={documentsStatus}
+              onRetryDocumentsStatus={retryDocumentsStatus}
             />
           ) : stillLoading ? (
             <CenteredSpinner />

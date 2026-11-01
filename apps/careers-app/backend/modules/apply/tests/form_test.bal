@@ -66,6 +66,29 @@ function aValidFormIsAccepted() {
 }
 
 @test:Config {}
+function theUniversityIsOptionalAndTrimmed() {
+    ApplicationForm|string filled = parseApplicationForm(formRequest(withField("university", " State University "),
+        PDF_BYTES));
+    if filled is string {
+        test:assertFail(filled);
+    }
+    test:assertEquals(filled?.university, "State University");
+
+    ApplicationForm|string blank = parseApplicationForm(formRequest(withField("university", "  "), PDF_BYTES));
+    if blank is string {
+        test:assertFail(blank);
+    }
+    test:assertEquals(blank?.university, ());
+}
+
+@test:Config {}
+function aTooLongUniversityIsRejected() {
+    string tooLong = "".padEnd(256, "a");
+    test:assertEquals(parseApplicationForm(formRequest(withField("university", tooLong), PDF_BYTES)),
+        "One of the details is too long.");
+}
+
+@test:Config {}
 function aRequestThatIsNotMultipartIsRejected() {
     http:Request req = new;
     req.setJsonPayload({"firstName": "Ada"});

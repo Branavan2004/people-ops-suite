@@ -16,11 +16,11 @@
 
 import { Box } from "@mui/material";
 
-import { PAGE_MAX_WIDTH } from "@config/brand";
+import { PAGE_MARGIN_X, PAGE_PADDING_X } from "@config/brand";
 
-// The centered, padded column that holds the content of a page.
+// Page content column with the side margin and padding.
 const PageContainer = ({ children }: { children: React.ReactNode }) => (
-  <Box sx={{ maxWidth: PAGE_MAX_WIDTH, mx: "auto", px: { xs: 2, md: 3 }, pt: { xs: 2.5, md: 3 }, pb: { xs: 4, md: 5 } }}>
+  <Box sx={{ mx: PAGE_MARGIN_X, px: PAGE_PADDING_X, pt: { xs: 2.5, md: 3 }, pb: { xs: 4, md: 5 } }}>
     {children}
   </Box>
 );

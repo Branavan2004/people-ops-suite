@@ -17,7 +17,7 @@
 import { Box, Button, Grid, Stack, Tooltip, Typography, useTheme } from "@mui/material";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
-import { ON_ORANGE, PAGE_MAX_WIDTH, heroColorsOf } from "@config/brand";
+import { ON_ORANGE, PAGE_MARGIN_X, PAGE_PADDING_X, PAGE_PULL_LEFT, heroColorsOf } from "@config/brand";
 import { pillButtonSx } from "@utils/styles";
 import type { VacancyDetail } from "@utils/vacancyService";
 import JobAtAGlance from "@view/jobs/components/JobAtAGlance";
@@ -44,7 +44,9 @@ const JobHero = ({
   onSeeAllRoles,
 }: JobHeroProps) => {
   const color = teamColors[detail.team.toUpperCase()] ?? "#6B7280";
-  const officeLabel = detail.officeLocations.length > 0 ? detail.officeLocations.join(", ") : "Remote";
+  // An office-less vacancy is Remote only when remote work is allowed.
+  const noOfficeLabel = detail.allowRemote ? "Remote" : "Not specified";
+  const officeLabel = detail.officeLocations.length > 0 ? detail.officeLocations.join(", ") : noOfficeLabel;
 
   const hero = heroColorsOf(useTheme().palette.mode);
 
@@ -63,7 +65,7 @@ const JobHero = ({
         backgroundSize: "auto, auto, 42px 42px, 42px 42px",
       }}
     >
-      <Box sx={{ maxWidth: PAGE_MAX_WIDTH, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 5, md: 7 } }}>
+      <Box sx={{ mx: PAGE_MARGIN_X, px: PAGE_PADDING_X, py: { xs: 5, md: 7 } }}>
         <Tooltip title="Back to jobs" arrow>
           <Box
             component="button"
@@ -73,7 +75,7 @@ const JobHero = ({
               width: 40,
               height: 40,
               mb: 3,
-              ml: `calc((min(${PAGE_MAX_WIDTH}px, 100vw) - 100vw) / 2)`,
+              ml: PAGE_PULL_LEFT,
               borderRadius: "50%",
               border: `1.5px solid ${hero.backButtonBorder}`,
               backgroundColor: hero.backButtonFill,

@@ -28,7 +28,11 @@ const JobAtAGlance = ({ team, officeLabel, jobType, onSeeAllRoles }: JobAtAGlanc
   <Box
     sx={{
       borderRadius: "16px",
-      p: 3,
+      // Size of the vacancy info card on wso2.com.
+      p: "28px 32px",
+      width: "100%",
+      maxWidth: "387px",
+      ml: { md: "auto" },
       backgroundColor: "#0F1B33",
       backgroundImage: [
         "radial-gradient(circle at 100% 100%, rgba(255,115,0,0.2), transparent 55%)",
@@ -38,7 +42,7 @@ const JobAtAGlance = ({ team, officeLabel, jobType, onSeeAllRoles }: JobAtAGlanc
       boxShadow: "0 18px 40px -16px rgba(11,18,32,0.5)",
     }}
   >
-    <Typography sx={{ color: "rgba(255,255,255,0.55)", fontSize: "12px", fontWeight: 700, letterSpacing: "0.1em", mb: 2 }}>
+    <Typography sx={{ color: "#fff", fontSize: "12px", fontWeight: 700, letterSpacing: "0.1em", mb: 2 }}>
       AT A GLANCE
     </Typography>
     <Stack gap={0}>
@@ -54,10 +58,10 @@ const JobAtAGlance = ({ team, officeLabel, jobType, onSeeAllRoles }: JobAtAGlanc
           alignItems="center"
           sx={{
             py: 1.5,
-            borderTop: i > 0 ? "1px solid rgba(255,255,255,0.1)" : "none",
+            borderTop: i > 0 ? "1px solid rgba(255,255,255,0.3)" : "none",
           }}
         >
-          <Typography sx={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", fontWeight: 700, letterSpacing: "0.05em" }}>
+          <Typography sx={{ color: "#fff", fontSize: "13px", fontWeight: 700, letterSpacing: "0.05em" }}>
             {row.label}
           </Typography>
           <Typography sx={{ color: "#fff", fontWeight: 600, fontSize: "15px" }}>{row.value}</Typography>
@@ -68,7 +72,7 @@ const JobAtAGlance = ({ team, officeLabel, jobType, onSeeAllRoles }: JobAtAGlanc
       variant="text"
       onClick={onSeeAllRoles}
       endIcon={<ArrowRight size={15} />}
-      sx={{ mt: 2, color: "primary.main", fontWeight: 700, px: 0 }}
+      sx={{ mt: 2, color: "#fff", fontWeight: 700, px: 0, "& .MuiButton-endIcon": { color: "primary.main" } }}
     >
       See all open roles
     </Button>

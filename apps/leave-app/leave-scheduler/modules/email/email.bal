@@ -39,6 +39,7 @@ public isolated function sendSabbaticalReminder(SabbaticalReminderDetails detail
     string startDate = formatDisplayDate(details.startDate);
     string endDate = formatDisplayDate(details.endDate);
     string template = check bindKeyValues(sabbaticalReminderTemplate, {
+        LEAD_NAME: details.leadName,
         EMPLOYEE_NAME: details.employeeName,
         LEAVE_DURATION: formatDuration(details.durationDays),
         LEAVE_START_DATE: startDate,

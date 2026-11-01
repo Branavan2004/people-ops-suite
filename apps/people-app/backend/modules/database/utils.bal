@@ -15,6 +15,7 @@
 // under the License. 
 
 import ballerina/lang.regexp;
+import ballerina/log;
 import ballerina/sql;
 import ballerina/time;
 
@@ -701,4 +702,83 @@ public isolated function otherCurrentEmployment(EmploymentMatch[] employments, s
         }
     }
     return;
+}
+
+# The calendar date it is in a timezone at a given moment.
+#
+# + timeZone - IANA timezone name, e.g. "Asia/Colombo"
+# + now - The moment to read the date at
+# + return - The date in YYYY-MM-DD form, or nil when the timezone is not one the runtime knows
+public isolated function dateIn(string timeZone, time:Utc now) returns string? {
+    // Trapped: getZone panics on a name it does not know rather than returning nil.
+    time:Zone?|error zone = trap time:getZone(timeZone);
+    if zone !is time:Zone {
+        return ();
+    }
+    time:Civil civil = zone.utcToCivil(now);
+    return string `${civil.year}-${civil.month < 10 ? "0" : ""}${civil.month}-${civil.day < 10 ? "0" : ""}${civil.day}`;
+}
+
+# Key a work location by its company and name, ignoring case and surrounding space.
+#
+# + companyId - Company ID
+# + location - Work location name
+# + return - Lookup key
+isolated function locationTimeZoneKey(int companyId, string location) returns string =>
+    string `${companyId}:${location.trim().toLowerAscii()}`;
+
+# Build the work location to timezone lookup localDateAt reads.
+#
+# + locations - Each location's company, name and timezone
+# + return - Location key to IANA timezone name
+isolated function toLocationTimeZoneMap(LocationTimeZone[] locations) returns map<string> {
+    map<string> zones = {};
+    foreach LocationTimeZone location in locations {
+        zones[locationTimeZoneKey(location.companyId, location.allowedLocation)] = location.timeZone;
+    }
+    return zones;
+}
+
+# Today's date where an employee works, in the timezone of their company's work location.
+#
+# The same reckoning the scheduler uses to move a New joiner to Active and apply a scheduled
+# change, so a date the API accepts and the day the sweep acts on it agree. A location with
+# no usable timezone falls back to DEFAULT_TIME_ZONE, and is logged so the gap gets fixed.
+#
+# + locationTimeZones - Lookup from getLocationTimeZones
+# + companyId - Employee's company ID
+# + workLocation - Employee's work location
+# + now - The moment to read the date at
+# + return - The date in YYYY-MM-DD form
+public isolated function localDateAt(map<string> locationTimeZones, int companyId, string workLocation,
+        time:Utc now) returns string {
+    string? timeZone = locationTimeZones[locationTimeZoneKey(companyId, workLocation)];
+    if timeZone is string {
+        string? date = dateIn(timeZone, now);
+        if date is string {
+            return date;
+        }
+    }
+    log:printWarn("Work location has no usable timezone; using the default",
+            companyId = companyId, workLocation = workLocation, timeZone = timeZone,
+            defaultTimeZone = DEFAULT_TIME_ZONE);
+    return dateIn(DEFAULT_TIME_ZONE, now) ?: time:utcToString(now).substring(0, 10);
+}
+
+# The reporting line a lead sees for a team member.
+#
+# Only an indirect report needs the additional report named. For an additional report the route
+# starts at the member themselves, and the relation already says so.
+#
+# + row - Reporting line as the query returns it
+# + return - The reporting line
+isolated function reportingLineFromRow(ReportingLineRow row) returns ReportingLine {
+    string? employeeId = row.throughEmployeeId;
+    if row.relation != INDIRECT || employeeId is () {
+        return {relation: row.relation, through: ()};
+    }
+    return {
+        relation: INDIRECT,
+        through: {employeeId, firstName: row.throughFirstName ?: "", lastName: row.throughLastName ?: ""}
+    };
 }

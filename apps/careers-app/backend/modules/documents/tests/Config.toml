@@ -1,0 +1,5 @@
+# Dummy values for the tests only: nothing here is a real endpoint or credential.
+[careers_app.documents.storageConfig]
+baseUrl = "http://localhost:10000"
+container = "test-container"
+sasToken = "sv=test&sig=test"

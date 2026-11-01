@@ -14,12 +14,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Typography } from "@mui/material";
 
-const FieldLabel = ({ children, mb }: { children: React.ReactNode; mb?: number }) => (
-  <Typography fontSize="11px" color="text.secondary" fontWeight={600} textTransform="uppercase" mb={mb}>
-    {children}
-  </Typography>
-);
+import { formatDate } from "./PendingChangesBanner";
 
-export default FieldLabel;
+describe("formatDate", () => {
+  it("shows the day stored, whatever zone the reader is in", () => {
+    // A date-only string parses as midnight UTC; read in a zone west of UTC it would
+    // otherwise come out as the day before.
+    expect(formatDate("2026-10-16")).toContain("16");
+  });
+
+  it("is not labelled UTC, since the date is the employee's own local day", () => {
+    expect(formatDate("2026-10-16")).not.toContain("UTC");
+  });
+});

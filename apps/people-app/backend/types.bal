@@ -166,6 +166,8 @@ type BulkRefData record {|
     map<int> companyIds;
     # Normalized office name to ID
     map<int> officeIds;
+    # Work location to timezone, keyed for database:localDateAt
+    map<string> locationTimeZones;
 |};
 
 # Result of the first pass over a bulk CSV upload.

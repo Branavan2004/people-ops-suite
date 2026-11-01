@@ -18,10 +18,12 @@ import { useSnackbar } from "notistack";
 
 import { useEffect } from "react";
 
-import { RootState, useAppSelector } from "@slices/store";
+import { clearSnackbarMessage } from "@slices/commonSlice/common";
+import { RootState, useAppDispatch, useAppSelector } from "@slices/store";
 
 const SnackbarListener = () => {
   const { enqueueSnackbar } = useSnackbar();
+  const dispatch = useAppDispatch();
   const common = useAppSelector((state: RootState) => state.common);
 
   useEffect(() => {
@@ -31,7 +33,8 @@ const SnackbarListener = () => {
       preventDuplicate: true,
       anchorOrigin: { horizontal: "right", vertical: "bottom" },
     });
-  }, [common.message, common.type, common.timestamp, enqueueSnackbar]);
+    dispatch(clearSnackbarMessage(common.timestamp));
+  }, [common.message, common.type, common.timestamp, enqueueSnackbar, dispatch]);
 
   return null;
 };

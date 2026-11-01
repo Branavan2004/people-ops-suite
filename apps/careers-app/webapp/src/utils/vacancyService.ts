@@ -51,15 +51,25 @@ export interface VacancyDetail {
   additionalContent: string | null;
 }
 
+// The longest a job read waits for the backend.
+const READ_TIMEOUT_MS = 20_000;
+
+// Longer than the backend's 90 second wait for an application and its CV upload.
+const APPLY_TIMEOUT_MS = 120_000;
+
 // Guests have no token, so they send no credentials at all.
 function authHeader(accessToken: string) {
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
 
+// The credentials and timeout every request carries.
+const requestOptions = (accessToken: string, timeout: number = READ_TIMEOUT_MS) => ({
+  headers: authHeader(accessToken),
+  timeout,
+});
+
 export async function fetchVacancies(accessToken: string): Promise<Job[]> {
-  const response = await axios.get<VacancyBasicInfo[]>(AppConfig.serviceUrls.jobs, {
-    headers: authHeader(accessToken),
-  });
+  const response = await axios.get<VacancyBasicInfo[]>(AppConfig.serviceUrls.jobs, requestOptions(accessToken));
 
   return response.data.map((v) => ({
     id: String(v.id),
@@ -75,8 +85,7 @@ export async function fetchVacancies(accessToken: string): Promise<Job[]> {
 // The message the careers backend sends with a 404 for a job that does not exist.
 const JOB_NOT_FOUND_MESSAGE = "Job not found";
 
-// A job that does not exist is not the same as a failed load. A 404 without the backend's message, such as one from a
-// wrong service address, stays a failed load.
+// A job that does not exist is not a failed load; a 404 without the backend's message stays a failed load.
 function jobMissingOr(error: unknown): never {
   const notFound = axios.isAxiosError(error) && error.response?.status === 404;
   if (notFound && error.response?.data?.message === JOB_NOT_FOUND_MESSAGE) {
@@ -100,9 +109,7 @@ export async function fetchVacancyDetail(id: string, accessToken: string): Promi
     mainContent: string | null;
     taskInformation: string | null;
     additionalContent: string | null;
-  }>(`${AppConfig.serviceUrls.jobs}/${id}`, {
-    headers: authHeader(accessToken),
-  }).catch(jobMissingOr);
+  }>(`${AppConfig.serviceUrls.jobs}/${id}`, requestOptions(accessToken)).catch(jobMissingOr);
 
   const v = response.data;
   return {
@@ -125,7 +132,7 @@ export async function fetchVacancyDetail(id: string, accessToken: string): Promi
 export async function fetchOrgStructure(accessToken: string): Promise<OrgStructure> {
   const response = await axios.get<{ location_list: Record<string, string>; team_list: Record<string, string> }>(
     `${AppConfig.serviceUrls.jobs}/org-structure`,
-    { headers: authHeader(accessToken) },
+    requestOptions(accessToken),
   );
 
   return {
@@ -142,10 +149,10 @@ export async function submitApplicationForm(
   cv: File,
 ): Promise<void> {
   const form = new FormData();
-  Object.entries(details).forEach(([key, value]) => form.append(key, String(value)));
+  Object.entries(details).forEach(([key, value]) => {
+    if (value !== undefined) form.append(key, String(value));
+  });
   form.append("cv", cv);
   // No Content-Type here: the browser adds it with the multipart boundary.
-  await axios.post(`${AppConfig.serviceUrls.jobs}/${jobId}/apply`, form, {
-    headers: authHeader(accessToken),
-  });
+  await axios.post(`${AppConfig.serviceUrls.jobs}/${jobId}/apply`, form, requestOptions(accessToken, APPLY_TIMEOUT_MS));
 }

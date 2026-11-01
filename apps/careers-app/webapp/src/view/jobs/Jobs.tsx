@@ -29,6 +29,7 @@ import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigationType, useSearchParams } from "react-router-dom";
 
+import { orangeTextOf } from "@config/brand";
 import { useAppAuthContext } from "@context/AuthContext";
 
 import JobCard from "@component/careers/JobCard";
@@ -59,8 +60,7 @@ const Jobs = () => {
     location: searchParams.getAll("location"),
   });
 
-  // The effect below writes the page's own changes to the URL with "replace". Any other navigation (the header's
-  // Jobs link, browser back or forward) is external, so the search and filters are re-read from the new URL.
+  // The page writes its own URL changes with replace; other navigation re-reads the search and filters.
   useEffect(() => {
     if (navigationType === "REPLACE") return;
     setSearch(searchParams.get("search") ?? "");
@@ -81,8 +81,7 @@ const Jobs = () => {
     [jobs, tab, savedJobIds],
   );
 
-  // Jobs that satisfy everything except the team/location dropdowns; the
-  // dropdowns derive their option counts from this list.
+  // Jobs matching everything except the team and location dropdowns.
   const baseJobs = useMemo(
     () => sourceJobs.filter((job) => matchesSearch(job, search) && matchesJobType(job, urlJobType)),
     [sourceJobs, search, urlJobType],
@@ -227,16 +226,8 @@ const Jobs = () => {
           </Typography>
 
           {filtered.length === 0 ? (
-            <Box
-              sx={{
-                py: 8,
-                textAlign: "center",
-                border: "1px dashed",
-                borderColor: "divider",
-                borderRadius: "12px",
-              }}
-            >
-              <Typography color="text.secondary">
+            <Box sx={{ py: 8, textAlign: "center" }}>
+              <Typography fontWeight={600} fontSize="1rem" sx={{ color: (theme) => orangeTextOf(theme) }}>
                 {tab === "saved" && sourceJobs.length === 0
                   ? "You haven't saved any jobs yet. Click the bookmark icon on a job card to save it here."
                   : "There are no available vacancies that match your search"}

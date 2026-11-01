@@ -411,6 +411,16 @@ isolated function mapToCompanyResponse(CompanyRow company) returns CompanyRespon
     };
 }
 
+# Get the timezone of every company work location, keyed for localDateAt.
+#
+# + return - Location key to IANA timezone name, or an error
+public isolated function getLocationTimeZones() returns map<string>|error {
+    stream<LocationTimeZone, error?> locationStream = databaseClient->query(getLocationTimeZonesQuery());
+    LocationTimeZone[] locations = check from LocationTimeZone location in locationStream
+        select location;
+    return toLocationTimeZoneMap(locations);
+}
+
 # Get offices.
 #
 # + companyId - Company ID (optional)
@@ -566,6 +576,22 @@ public isolated function isSubordinateOfLead(string leadEmail, string employeeId
         return result;
     }
     return true;
+}
+
+# How a team member is linked to a lead.
+#
+# + leadEmail - Work email of the lead
+# + employeeId - Employee ID of the team member
+# + return - The reporting line, nil when the member is not in the lead's chain, or an error
+public isolated function getReportingLine(string leadEmail, string employeeId) returns ReportingLine|error? {
+    ReportingLineRow|error row = databaseClient->queryRow(reportingLineQuery(leadEmail, employeeId));
+    if row is sql:NoRowsError {
+        return;
+    }
+    if row is error {
+        return row;
+    }
+    return reportingLineFromRow(row);
 }
 
 # Check if an employee is a lead (manages at least one employee).

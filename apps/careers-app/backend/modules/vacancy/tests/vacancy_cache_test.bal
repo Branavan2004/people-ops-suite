@@ -18,7 +18,7 @@ import ballerina/http;
 import ballerina/lang.runtime;
 import ballerina/test;
 
-// A fake vacancy service that counts its calls.
+// A fake upstream that counts its calls.
 isolated class FakeUpstream {
     private int calls = 0;
     private final int status;

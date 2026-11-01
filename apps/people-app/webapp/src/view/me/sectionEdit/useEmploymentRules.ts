@@ -85,6 +85,12 @@ export const useEmploymentRules = () => {
     [employmentTypes, values.employmentTypeId],
   );
 
+  const [addProbationEndDate, setAddProbationEndDate] = useState(false);
+
+  useEffect(() => {
+    if (values.probationEndDate) setAddProbationEndDate(true);
+  }, [values.probationEndDate]);
+
   const matchedProbationLocation = useMemo(() => {
     if (!values.companyId || !values.workLocation || !companies.length) {
       return null;
@@ -104,11 +110,8 @@ export const useEmploymentRules = () => {
     // clear a loaded value before the preservation guard below gets a chance to run.
     if (employmentTypes.length === 0) return;
 
-    // Only Permanent and Probation carry a probation end date at all.
-    if (!isPermanent && !isProbationType) {
-      if (values.probationEndDate) setFieldValue("probationEndDate", null);
-      return;
-    }
+    // Other types only carry a probation end date once it is added explicitly.
+    if (!isPermanent && !isProbationType && !addProbationEndDate) return;
 
     // The record already has a date — never overwrite it.
     if (values.probationEndDate) return;
@@ -133,6 +136,7 @@ export const useEmploymentRules = () => {
     employmentTypes.length,
     isPermanent,
     isProbationType,
+    addProbationEndDate,
     values.startDate,
     matchedProbationLocation,
     setFieldValue,
@@ -178,6 +182,15 @@ export const useEmploymentRules = () => {
       const isNewInternship = /^internship$/i.test(nextName);
       const isAutoIdType = AUTO_ID_EMPLOYMENT_TYPES.test(nextName);
 
+      const isNewPermanentOrProbation =
+        /^permanent$/i.test(nextName) ||
+        PROBATION_EMPLOYMENT_TYPE.test(nextName);
+
+      if (!isNewPermanentOrProbation || (!isPermanent && !isProbationType)) {
+        setFieldValue("probationEndDate", null);
+        setAddProbationEndDate(false);
+      }
+
       if (isNewInternship) {
         // Six months is the wizard's default internship term; the agreement end date
         // follows from it immediately so the field is never left blank.
@@ -204,10 +217,19 @@ export const useEmploymentRules = () => {
         setFieldValue("agreementEndDate", null);
       }
     },
-    [setFieldValue, employmentTypes, values.startDate, computeAgreementEndDate],
+    [
+      setFieldValue,
+      employmentTypes,
+      values.startDate,
+      computeAgreementEndDate,
+      isPermanent,
+      isProbationType,
+    ],
   );
 
   return {
+    addProbationEndDate,
+    setAddProbationEndDate,
     isPermanent,
     isProbationType,
     isFixedTerm,

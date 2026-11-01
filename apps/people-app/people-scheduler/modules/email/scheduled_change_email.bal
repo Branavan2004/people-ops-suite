@@ -31,11 +31,13 @@ import ballerina/time;
 public isolated function notifyScheduledChanges(database:ScheduledChangeOutcome[] outcomes)
     returns error? {
 
-    string runDate = time:utcToString(time:utcNow()).substring(0, 10);
+    [string, string] [summaryDate, heading] = summaryDateAndHeading(
+            from database:ScheduledChangeOutcome o in outcomes select o.effectiveDate,
+            from database:ScheduledChangeOutcome o in outcomes select o.workLocation);
 
     map<string> keyValues = {
         APP_NAME: appName,
-        RUN_DATE: runDate,
+        SUMMARY_DATE: summaryDate,
         COUNT: outcomes.length().toString(),
         EMPLOYEE_LIST: buildScheduledChangeRows(outcomes),
         YEAR: time:utcToCivil(time:utcNow()).year.toString()
@@ -58,8 +60,8 @@ public isolated function notifyScheduledChanges(database:ScheduledChangeOutcome[
     // The subject leads with what needs attention: a run where everything applied is
     // information, one where something did not is a prompt to go and look.
     string subject = notApplied > 0
-        ? string `Scheduled Changes (${runDate}): ${outcomes.length()} processed, ${notApplied} need attention`
-        : string `Scheduled Changes (${runDate}): ${outcomes.length()} applied`;
+        ? string `Scheduled Changes (${heading}): ${outcomes.length()} processed, ${notApplied} need attention`
+        : string `Scheduled Changes (${heading}): ${outcomes.length()} applied`;
 
     string[] recipients = emailServiceConfig.scheduledChangeRecipients;
 
@@ -86,7 +88,7 @@ public isolated function notifyScheduledChanges(database:ScheduledChangeOutcome[
                 responseBody = responseBody is json ? responseBody.toJsonString() : responseBody.message());
         return error(customError);
     }
-    log:printInfo(string `Scheduled change summary email sent on ${runDate} for ${outcomes.length()} change(s)`);
+    log:printInfo(string `Scheduled change summary email sent for ${summaryDate} with ${outcomes.length()} change(s)`);
 }
 
 # Build the table rows for the scheduled change summary.
@@ -115,6 +117,8 @@ isolated function buildScheduledChangeRows(database:ScheduledChangeOutcome[] out
         rows += string `<tr>` +
             string `<td style="${cellBase} font-size:13px; color:#2b3844;">${escapeHtml(outcome.employeeId)}</td>` +
             string `<td style="${cellBase} font-size:13px; color:#2b3844;">${escapeHtml(outcome.employeeName)}</td>` +
+            string `<td style="${cellBase} font-size:13px; color:#2b3844;">` +
+            string `${escapeHtml(database:locationLabel(outcome.workLocation, outcome.timeZone))}</td>` +
             string `<td style="${cellBase} font-size:13px; color:#5a6b7b; white-space:nowrap;">${escapeHtml(outcome.effectiveDate)}</td>` +
             string `<td style="${cellBase} font-size:13px;">` +
             string `<span style="color:${statusColour}; font-weight:bold;">${outcome.status}</span>` +

@@ -892,7 +892,7 @@ final string sabbaticalReminderTemplate = string `
                                 margin-top: 0;
                               "
                             >
-                              Dear All,
+                              Dear <!-- [LEAD_NAME] -->,
                             </p>
 
                             <p

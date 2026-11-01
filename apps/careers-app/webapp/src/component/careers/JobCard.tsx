@@ -20,9 +20,9 @@ import { Link } from "react-router-dom";
 
 import { Job } from "@/types/types";
 import { useAppAuthContext } from "@context/AuthContext";
-import { toggleSaveJob } from "@slices/careersSlice/careers";
 import { RootState, useAppDispatch, useAppSelector } from "@slices/store";
 import { jobPath } from "@utils/jobFilterUtils";
+import { toggleSavedJob } from "@utils/savedJobs";
 
 interface JobCardProps {
   job: Job;
@@ -49,7 +49,7 @@ const JobCard = ({ job }: JobCardProps) => {
             borderColor: "divider",
             borderRadius: "14px",
             boxShadow: "0 18px 40px -16px rgb(7 20 46 / 18%)",
-            backgroundColor: "background.paper",
+            backgroundColor: "background.glass",
             transition: "transform 0.15s, box-shadow 0.15s, border-color 0.15s",
             "&:hover": {
               transform: "translateY(-2px)",
@@ -143,7 +143,7 @@ const JobCard = ({ job }: JobCardProps) => {
             <Box
               component="button"
               aria-label={saveLabel}
-              onClick={() => dispatch(toggleSaveJob(job.id))}
+              onClick={() => dispatch(toggleSavedJob(job.id))}
               sx={{
                 border: "none",
                 background: "none",

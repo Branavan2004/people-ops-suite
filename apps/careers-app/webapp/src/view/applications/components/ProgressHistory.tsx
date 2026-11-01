@@ -16,30 +16,36 @@
 
 import { Box, Stack, Typography } from "@mui/material";
 
-import type { Application } from "@/types/types";
-import { formatDate } from "@view/applications/applicationHelpers";
+import { type HistoryEntry, formatDate, formatDateTime } from "@view/applications/applicationHelpers";
 import SectionTitle from "@view/applications/components/SectionTitle";
 
 interface ProgressHistoryProps {
-  timeline: NonNullable<Application["timeline"]>;
+  entries: HistoryEntry[];
 }
 
-// The application's stage changes, newest first.
-const ProgressHistory = ({ timeline }: ProgressHistoryProps) => {
-  if (timeline.length === 0) return null;
+// What happened to the application, newest first.
+const ProgressHistory = ({ entries }: ProgressHistoryProps) => {
+  if (entries.length === 0) return null;
 
   return (
     <Box sx={{ mb: 2 }}>
       <SectionTitle>PROGRESS HISTORY</SectionTitle>
       <Stack gap={1}>
-        {[...timeline].reverse().map((event, index) => (
-          <Stack key={`${event.stage}-${event.date}-${index}`} direction="row" gap={2}>
-            <Typography fontSize="0.85rem" color="text.secondary" sx={{ minWidth: 96 }}>
-              {formatDate(event.date)}
+        {[...entries].reverse().map((entry, index) => (
+          <Stack key={`${entry.label}-${entry.date}-${index}`} direction="row" gap={2}>
+            <Typography fontSize="0.85rem" color="text.secondary" sx={{ minWidth: 150 }}>
+              {entry.date ? (entry.withTime ? formatDateTime(entry.date) : formatDate(entry.date)) : "Date not recorded"}
             </Typography>
-            <Typography fontSize="0.9rem" fontWeight={600}>
-              {event.stage}
-            </Typography>
+            <Box>
+              <Typography fontSize="0.9rem" fontWeight={600}>
+                {entry.label}
+              </Typography>
+              {entry.detail && (
+                <Typography fontSize="0.8rem" color="text.secondary">
+                  {entry.detail}
+                </Typography>
+              )}
+            </Box>
           </Stack>
         ))}
       </Stack>

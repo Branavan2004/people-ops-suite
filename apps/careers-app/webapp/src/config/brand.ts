@@ -14,7 +14,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import type { Theme } from "@mui/material";
+
 export const BRAND_ORANGE = "#ff6700";
+
+// Orange for text; the darker shade on the light theme to meet contrast.
+export const orangeTextOf = (theme: Theme) =>
+  theme.palette.mode === "dark" ? theme.palette.primary.main : theme.palette.primary.dark;
 
 export const BRAND_TINT = {
   faint: "#ff670010",
@@ -22,15 +28,19 @@ export const BRAND_TINT = {
   border: "#ff670040",
 };
 
-export const PAGE_MAX_WIDTH = 1080;
+// Side margin of a page by breakpoint (116px on wide screens) and its inner padding.
+export const PAGE_MARGIN_X = { xs: 0, md: "48px", lg: "116px" };
+export const PAGE_PADDING_X = "15px";
+// The side margin as a negative value.
+export const PAGE_PULL_LEFT = { xs: 0, md: "-48px", lg: "-116px" };
 
 // Text on the brand orange: dark in both modes.
 export const ON_ORANGE = "#0B1220";
 
-// The colours of the job page hero, and of the loading skeleton that stands in for it, for each theme mode.
+// Job page hero colours for each theme mode, also used by its skeleton.
 const HERO_COLORS = {
   dark: {
-    background: "#0B1220",
+    background: "#0f172a",
     gridLine: "rgba(255,255,255,0.05)",
     outline: "rgba(255,255,255,0.2)",
     orangeGlow: "rgba(255,115,0,0.38)",

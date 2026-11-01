@@ -27,6 +27,34 @@ export const teamColors: Record<string, string> = {
   "BUSINESS OPERATIONS": "#F97316",
 };
 
+// The closing block of a job (what WSO2 offers, and its commitment to diversity): a dark card with a blue sheen,
+// white headings, orange bullets and light text, in both light and dark mode.
+export const offerCardStyles = {
+  mt: 4,
+  p: { xs: 3, md: 6 },
+  borderRadius: "28px",
+  background:
+    "linear-gradient(115deg, #0B1230 0%, #0E1A3D 34%, #1F4079 60%, #0E1A3D 74%, #0B1230 86%, #1B2A55 100%)",
+  fontSize: "1rem",
+  lineHeight: "1.7rem",
+  letterSpacing: ".01rem",
+  "&, & *": { fontFamily: "inherit !important", color: "rgba(255,255,255,0.92) !important" },
+  "& h1, & h2, & h3": {
+    color: "#ffffff !important",
+    fontWeight: "700 !important",
+    fontSize: { xs: "1.7rem", md: "2.3rem" },
+    lineHeight: { xs: "2.1rem", md: "2.9rem" },
+    mt: 0,
+    mb: 3,
+  },
+  "& h2:not(:first-of-type), & h3:not(:first-of-type)": { mt: 5 },
+  "& ul": { pl: 2.5, listStyle: "disc", mb: 2 },
+  "& li": { mb: 1.75, pl: 0.5, "&::marker": { color: "#ff7a2f", fontSize: "1.1em" } },
+  "& p": { mb: 2, letterSpacing: ".012rem" },
+  "& strong": { color: "#ffffff !important" },
+  "& a": { color: "#ff9a5c !important", textDecoration: "underline" },
+} as const;
+
 export const proseStyles = {
   fontSize: "1rem",
   lineHeight: "1.6rem",

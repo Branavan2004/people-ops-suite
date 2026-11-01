@@ -48,10 +48,8 @@ const JobFilters = ({ jobs, filters, onChange, searchActive, onClearAll }: JobFi
   const teamAnchor = useRef<HTMLButtonElement>(null);
   const locationAnchor = useRef<HTMLButtonElement>(null);
 
-  // How many open positions each option would match given the other
-  // dropdown's selection, so a badge always equals the results it produces.
-  // A dropdown's counts ignore its own selection, which keeps the remaining
-  // options of that dropdown available to add.
+  // How many open positions each option would match given the other dropdown's selection; a dropdown's counts ignore
+  // its own selection.
   const teamCounts = useMemo(() => {
     const scoped = jobs.filter((job) => matchesLocation(job, filters.location));
     const counts: Record<string, number> = {};
@@ -124,11 +122,12 @@ const JobFilters = ({ jobs, filters, onChange, searchActive, onClearAll }: JobFi
             gap: 1,
             width: "100%",
             height: "100%",
-            minWidth: 150,
+            minWidth: 0,
             padding: "0 12px",
-            backgroundColor: "transparent",
-            border: "1.5px solid",
-            borderColor: isOpen ? "#ff6700" : "transparent",
+            backgroundColor: "background.glass",
+            border: "1px solid",
+            borderColor: (theme) =>
+              isOpen ? theme.palette.primary.main : theme.palette.mode === "dark" ? theme.palette.divider : "rgba(0,0,0,0.15)",
             outline: "none",
             borderRadius: "40px",
             textAlign: "left",
@@ -256,9 +255,9 @@ const JobFilters = ({ jobs, filters, onChange, searchActive, onClearAll }: JobFi
                           width: 16,
                           height: 16,
                           flexShrink: 0,
-                          backgroundColor: checked ? "#ff6700" : "background.paper",
+                          backgroundColor: checked ? "#ff6700" : "background.glass",
                           border: "1.5px solid",
-                          borderColor: checked ? "#ff6700" : "text.disabled",
+                          borderColor: checked ? "#ff6700" : "text.secondary",
                           borderRadius: "4px",
                         }}
                       >
@@ -303,14 +302,9 @@ const JobFilters = ({ jobs, filters, onChange, searchActive, onClearAll }: JobFi
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(2, minmax(0, 1fr)) auto" },
-            gap: 1,
+            gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
+            gap: 2,
             alignItems: "center",
-            maxWidth: 1200,
-            padding: "4px",
-            backgroundColor: "background.paper",
-            borderRadius: "40px",
-            boxShadow: "0 14px 40px -14px rgb(7 20 46 / 35%), 0 1px 0 rgb(7 20 46 / 6%)",
           }}
         >
           {renderDropdown("team", "Team", teams, 2)}
@@ -319,12 +313,6 @@ const JobFilters = ({ jobs, filters, onChange, searchActive, onClearAll }: JobFi
 
         {hasActive && (
           <Stack direction="row" flexWrap="wrap" alignItems="center" gap={1} sx={{ mt: 2 }}>
-            <Typography
-              component="span"
-              sx={{ fontSize: "12px", fontWeight: 600, letterSpacing: "0.08em", color: "#6b7591", mr: 0.5 }}
-            >
-              ACTIVE
-            </Typography>
             {activeChips.map(({ key, value }) => (
               <Stack
                 key={`${key}-${value}`}
@@ -333,7 +321,7 @@ const JobFilters = ({ jobs, filters, onChange, searchActive, onClearAll }: JobFi
                 gap={0.75}
                 sx={{
                   padding: "6px 10px 6px 14px",
-                  backgroundColor: "background.paper",
+                  backgroundColor: "background.glass",
                   border: "1px solid",
                   borderColor: "divider",
                   borderRadius: "999px",

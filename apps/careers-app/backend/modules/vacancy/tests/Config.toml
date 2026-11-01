@@ -1,5 +1,5 @@
 # Dummy values for the tests only: nothing here is a real endpoint or credential.
-[careers_app.vacancy.vacancyConfig]
+[careers_app.vacancy.atsConfig]
 baseUrl = "http://localhost:9098"
 tokenUrl = "http://localhost:9098/token"
 clientId = "test-client"

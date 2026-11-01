@@ -2,7 +2,7 @@
 allowedOrigins = [""]
 port = 8080
 
-[careers_app.vacancy.vacancyConfig]
+[careers_app.vacancy.atsConfig]
 baseUrl = ""
 tokenUrl = ""
 clientId = ""
@@ -12,13 +12,24 @@ clientSecret = ""
 jwksUrl = ""
 issuer = ""
 audience = ""
+userInfoUrl = ""
 
-# Optional: limit on guest applications.
+# Onboarding documents storage; the SAS token needs create, write and read permission.
+[careers_app.documents.storageConfig]
+baseUrl = ""
+container = ""
+sasToken = ""
+
+# Optional: how many days after it was made a submission can be changed; zero means it cannot be changed.
+# [careers_app.documents]
+# editableDays = 0
+
+# Optional: limit on the requests of one signed-in user.
 # [careers_app.apply]
-# applyMaxPerWindow = 5
-# applyWindowSeconds = 3600
+# signedInMaxPerUser = 60
+# signedInWindowSeconds = 60
 
-# Optional: job reads cached duration. 
+# Optional: job read cache, in seconds.
 # [careers_app.vacancy]
 # refreshAfterSeconds = 120
 # maxStaleSeconds = 21600

@@ -15,7 +15,7 @@
 // under the License.
 
 # Email template for the Marked-leaver auto-transition summary notification.
-# Placeholders: APP_NAME, RUN_DATE, COUNT, EMPLOYEE_LIST, YEAR
+# Placeholders: APP_NAME, SUMMARY_DATE, COUNT, EMPLOYEE_LIST, YEAR
 public final string leaverAutoTransitionSummaryTemplate = string `
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -119,7 +119,7 @@ public final string leaverAutoTransitionSummaryTemplate = string `
                             >
                               <strong>Automated Offboarding Update</strong> &mdash;
                               <!-- [COUNT] --> employee(s) had reached their final day of employment by
-                              <!-- [RUN_DATE] --> and were automatically transitioned from
+                              <!-- [SUMMARY_DATE] --> and were automatically transitioned from
                               <em>Marked leaver</em> to <em>Left</em>.
                             </p>
                           </td>
@@ -215,6 +215,21 @@ public final string leaverAutoTransitionSummaryTemplate = string `
                             Work email
                           </th>
                           <th
+                            align="left"
+                            style="
+                              padding:10px 12px;
+                              background-color:#f7f9fb;
+                              border-bottom:1px solid #e0e0e0;
+                              font-size:11px;
+                              font-weight:bold;
+                              letter-spacing:0.6px;
+                              text-transform:uppercase;
+                              color:#7a8899;
+                            "
+                          >
+                            Location
+                          </th>
+                          <th
                             align="right"
                             style="
                               padding:10px 16px;
@@ -284,7 +299,7 @@ public final string leaverAutoTransitionSummaryTemplate = string `
 
 
 # Email template for the New-joiner activation summary notification.
-# Placeholders: APP_NAME, RUN_DATE, COUNT, PENDING_EMAIL_NOTE, EMPLOYEE_LIST, YEAR
+# Placeholders: APP_NAME, SUMMARY_DATE, COUNT, PENDING_EMAIL_NOTE, EMPLOYEE_LIST, YEAR
 public final string joinerActivationSummaryTemplate = string `
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -388,7 +403,7 @@ public final string joinerActivationSummaryTemplate = string `
                             >
                               <strong>Automated Onboarding Update</strong> &mdash;
                               <!-- [COUNT] --> employee(s) had reached their start date by
-                              <!-- [RUN_DATE] --> and were automatically transitioned from
+                              <!-- [SUMMARY_DATE] --> and were automatically transitioned from
                               <em>New joiner</em> to <em>Active</em>.
                             </p>
                           </td>
@@ -485,6 +500,21 @@ public final string joinerActivationSummaryTemplate = string `
                             Work email
                           </th>
                           <th
+                            align="left"
+                            style="
+                              padding:10px 12px;
+                              background-color:#f7f9fb;
+                              border-bottom:1px solid #e0e0e0;
+                              font-size:11px;
+                              font-weight:bold;
+                              letter-spacing:0.6px;
+                              text-transform:uppercase;
+                              color:#7a8899;
+                            "
+                          >
+                            Location
+                          </th>
+                          <th
                             align="right"
                             style="
                               padding:10px 16px;
@@ -555,7 +585,7 @@ public final string joinerActivationSummaryTemplate = string `
 
 # HTML template for the scheduled-change summary email.
 #
-# Placeholders: APP_NAME, RUN_DATE, COUNT, EMPLOYEE_LIST, YEAR
+# Placeholders: APP_NAME, SUMMARY_DATE, COUNT, EMPLOYEE_LIST, YEAR
 public final string scheduledChangeSummaryTemplate = string `
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -658,7 +688,7 @@ public final string scheduledChangeSummaryTemplate = string `
                               "
                             >
                               <strong>Scheduled Change Update</strong> &mdash;
-                              <!-- [COUNT] --> scheduled change(s) were due on <!-- [RUN_DATE] --> and have
+                              <!-- [COUNT] --> scheduled change(s) were due by <!-- [SUMMARY_DATE] --> and have
                               been processed. Changes shown as superseded were not applied:
                               the field had already been changed after the change was scheduled.
                               </em>
@@ -739,6 +769,21 @@ public final string scheduledChangeSummaryTemplate = string `
                             "
                           >
                             Employee
+                          </th>
+                          <th
+                            align="left"
+                            style="
+                              padding:10px 12px;
+                              background-color:#f7f9fb;
+                              border-bottom:1px solid #e0e0e0;
+                              font-size:11px;
+                              font-weight:bold;
+                              letter-spacing:0.6px;
+                              text-transform:uppercase;
+                              color:#7a8899;
+                            "
+                          >
+                            Location
                           </th>
                           <th
                             align="left"

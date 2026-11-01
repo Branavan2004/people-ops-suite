@@ -474,6 +474,8 @@ CREATE TABLE `companies_allowed_locations` (
   `allowed_location` VARCHAR(255) NOT NULL,
   `is_active` TINYINT(1) NOT NULL DEFAULT 1,
   `probation_period` tinyint unsigned DEFAULT NULL,
+  -- IANA timezone the location's employees' dates are read in, e.g. 'Asia/Colombo'
+  `time_zone` VARCHAR(64) NOT NULL,
   `created_by` VARCHAR(254) NOT NULL,
   `created_on` TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_by` VARCHAR(254) NOT NULL,

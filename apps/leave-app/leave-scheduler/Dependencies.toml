@@ -431,8 +431,8 @@ modules = [
 
 [[package]]
 org = "wso2"
-name = "sabbatical_reminder"
-version = "1.1.1"
+name = "leave_scheduler"
+version = "1.1.4"
 dependencies = [
 	{org = "ballerina", name = "graphql"},
 	{org = "ballerina", name = "http"},
@@ -446,9 +446,9 @@ dependencies = [
 	{org = "ballerinax", name = "mysql.driver"}
 ]
 modules = [
-	{org = "wso2", packageName = "sabbatical_reminder", moduleName = "sabbatical_reminder"},
-	{org = "wso2", packageName = "sabbatical_reminder", moduleName = "sabbatical_reminder.database"},
-	{org = "wso2", packageName = "sabbatical_reminder", moduleName = "sabbatical_reminder.email"},
-	{org = "wso2", packageName = "sabbatical_reminder", moduleName = "sabbatical_reminder.employee"}
+	{org = "wso2", packageName = "leave_scheduler", moduleName = "leave_scheduler"},
+	{org = "wso2", packageName = "leave_scheduler", moduleName = "leave_scheduler.database"},
+	{org = "wso2", packageName = "leave_scheduler", moduleName = "leave_scheduler.email"},
+	{org = "wso2", packageName = "leave_scheduler", moduleName = "leave_scheduler.employee"}
 ]
 

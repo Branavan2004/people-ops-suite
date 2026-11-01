@@ -14,6 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import people_scheduler.database;
+
 import ballerina/lang.regexp;
 import ballerina/mime;
 
@@ -85,4 +87,20 @@ public isolated function bindKeyValues(string content, map<string> keyValPairs) 
     },
     content);
     return mime:base64Encode(bindContent).ensureType();
+}
+
+# The date a summary email is for, and the subject's heading for it.
+#
+# The date is the latest one the employees in the email moved on (their start date,
+# effective date or final day) rather than the date of the run, which for a location ahead
+# of Sri Lanka falls on the day before. The heading adds the location when everyone in the
+# email shares one; otherwise each row names its own.
+#
+# + dates - The date each employee in the email moved on, in YYYY-MM-DD form
+# + locations - Each employee's work location
+# + return - The date, and the subject's heading for it
+isolated function summaryDateAndHeading(string[] dates, string[] locations) returns [string, string] {
+    string date = database:latestDate(dates) ?: "";
+    string? location = database:sharedLocation(locations);
+    return [date, location is string ? string `${date}, ${location}` : date];
 }

@@ -22,11 +22,12 @@ import { pillButtonSx } from "@utils/styles";
 
 interface WelcomeDialogProps {
   jobTitle: string;
+  onSubmitDocuments: () => void;
   onClose: () => void;
 }
 
-// Congratulates a candidate who has accepted an offer.
-const WelcomeDialog = ({ jobTitle, onClose }: WelcomeDialogProps) => (
+// Congratulates a candidate who has accepted an offer and offers to open the page for their onboarding documents.
+const WelcomeDialog = ({ jobTitle, onSubmitDocuments, onClose }: WelcomeDialogProps) => (
   <StatusDialog
     open
     onClose={onClose}
@@ -34,13 +35,19 @@ const WelcomeDialog = ({ jobTitle, onClose }: WelcomeDialogProps) => (
     icon={<Check size={32} strokeWidth={3} />}
     title="Welcome to the WSO2 family!"
     actions={
-      <Button variant="contained" onClick={onClose} sx={{ ...pillButtonSx, px: 4 }}>
-        Done
-      </Button>
+      <>
+        <Button onClick={onClose} sx={{ fontWeight: 600 }}>
+          Later
+        </Button>
+        <Button variant="contained" onClick={onSubmitDocuments} sx={{ ...pillButtonSx, px: 3 }}>
+          Submit documents
+        </Button>
+      </>
     }
   >
     <Typography fontSize="0.95rem" color="text.primary">
-      Congratulations on joining WSO2 as {jobTitle}. The hiring team will contact you with the next steps.
+      Congratulations on joining WSO2 as {jobTitle}. Please submit the documents we need to complete your onboarding.
+      The hiring team will contact you with the next steps.
     </Typography>
   </StatusDialog>
 );

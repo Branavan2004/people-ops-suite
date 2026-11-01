@@ -16,9 +16,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Application } from "@/types/types";
+import type { Application, ApplicationInterview } from "@/types/types";
 import { ApplicationStatus } from "@config/constant";
-import { daysLeftText, offerDeadlineOf, tabOf, trackerOf } from "@view/applications/applicationHelpers";
+import { daysLeftText, defaultTabOf, historyOf, offerDeadlineOf, tabOf, trackerOf } from "@view/applications/applicationHelpers";
 
 const application = (overrides: Partial<Application> = {}): Application => ({
   id: "a1",
@@ -95,6 +95,96 @@ describe("trackerOf", () => {
       activeStep: 2,
       errorStep: null,
     });
+  });
+});
+
+describe("historyOf", () => {
+  const interview = (overrides: Partial<ApplicationInterview> = {}): ApplicationInterview => ({
+    id: "i1",
+    round: "Technical interview",
+    dateTime: "2026-10-05T10:00:00",
+    mode: "Video",
+    location: "https://meet.example.test/x",
+    status: "Completed",
+    ...overrides,
+  });
+
+  it("is only the application date for a new application", () => {
+    expect(historyOf(application(), [])).toEqual([{ label: "Applied", date: "2026-09-01" }]);
+  });
+
+  it("shows a shortlisted application as applied, then its current stage with the date it changed", () => {
+    const entries = historyOf(
+      application({ status: ApplicationStatus.Screening, updatedDate: "2026-09-04" }),
+      [],
+    );
+    expect(entries.map((entry) => entry.label)).toEqual(["Applied", "Screening"]);
+    expect(entries[1].date).toBe("2026-09-04");
+  });
+
+  it("dates screening by when the application last changed while it is at the interview stage", () => {
+    const entries = historyOf(application({ status: ApplicationStatus.Interview, updatedDate: "2026-09-20" }), []);
+    expect(entries.map((entry) => entry.label)).toEqual(["Applied", "Screening"]);
+    expect(entries[1]).toMatchObject({ date: "2026-09-20", detail: "Passed" });
+  });
+
+  it("lists the interviews by their own stage names, in the order they take place, with no separate interview line", () => {
+    const entries = historyOf(application({ status: ApplicationStatus.Interview, updatedDate: "2026-10-06" }), [
+      interview({ id: "i2", round: "Final round", dateTime: "2026-10-12T10:00:00", status: "Upcoming" }),
+      interview({ round: "Initial Interview" }),
+    ]);
+    expect(entries.map((entry) => entry.label)).toEqual([
+      "Applied",
+      "Screening",
+      "Initial Interview",
+      "Final round",
+    ]);
+    expect(entries[2].withTime).toBe(true);
+    expect(entries[3].detail).toBe("Interview · Upcoming");
+  });
+
+  it("ends with the final status and the date it was reached", () => {
+    const hired = historyOf(application({ status: ApplicationStatus.OfferAccepted, updatedDate: "2026-10-20" }), [
+      interview(),
+    ]);
+    expect(hired.map((entry) => entry.label)).toEqual(["Applied", "Screening", "Technical interview", "Offer Accepted"]);
+    expect(hired[1].date).toBeNull();
+    expect(hired[3].date).toBe("2026-10-20");
+  });
+
+  it("does not invent the stages a rejected application passed", () => {
+    const entries = historyOf(application({ status: ApplicationStatus.Rejected, updatedDate: "2026-09-10" }), []);
+    expect(entries.map((entry) => entry.label)).toEqual(["Applied", "Rejected"]);
+    expect(entries[1].date).toBe("2026-09-10");
+  });
+
+  it("leaves the date out when the current status has none", () => {
+    const entries = historyOf(application({ status: ApplicationStatus.Screening }), []);
+    expect(entries[1].date).toBeNull();
+  });
+});
+
+describe("defaultTabOf", () => {
+  const withStatuses = (...statuses: ApplicationStatus[]) => statuses.map((status) => application({ status }));
+
+  it("opens on offers when there is an offer, even with interviews and rejections", () => {
+    expect(
+      defaultTabOf(withStatuses(ApplicationStatus.Rejected, ApplicationStatus.Interview, ApplicationStatus.Offer)),
+    ).toBe("offers");
+    expect(defaultTabOf(withStatuses(ApplicationStatus.OfferAccepted))).toBe("offers");
+  });
+
+  it("opens on active for an interview when there is no offer", () => {
+    expect(defaultTabOf(withStatuses(ApplicationStatus.Rejected, ApplicationStatus.Interview))).toBe("active");
+  });
+
+  it("opens on closed for a rejection when there is no offer or interview", () => {
+    expect(defaultTabOf(withStatuses(ApplicationStatus.Applied, ApplicationStatus.Rejected))).toBe("closed");
+  });
+
+  it("opens on active for applications still in progress, and on all when there are none", () => {
+    expect(defaultTabOf(withStatuses(ApplicationStatus.Applied, ApplicationStatus.Screening))).toBe("active");
+    expect(defaultTabOf([])).toBe("all");
   });
 });
 

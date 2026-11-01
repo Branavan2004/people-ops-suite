@@ -35,7 +35,6 @@ isolated function getDueSabbaticalRemindersQuery(string today, string windowEnd)
     WHERE
         leave_type = 'sabbatical'
         AND status = 'APPROVED'
-        AND approver_email IS NOT NULL
         AND sabbatical_reminder_sent_on IS NULL
         AND DATE(start_date) BETWEEN ${today} AND ${windowEnd}
     ORDER BY

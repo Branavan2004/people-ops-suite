@@ -23,6 +23,7 @@ import NotFoundPage from "@component/common/NotFoundPage";
 import PreLoader from "@component/common/PreLoader";
 import { useAppAuthContext } from "@context/AuthContext";
 import { opensDirectly } from "@utils/jobFilterUtils";
+import type { RouteHandle } from "@utils/routeData";
 import { View } from "@view/index";
 
 // Shows the pages inside it to signed-in candidates, and sends a guest to sign in.
@@ -53,14 +54,42 @@ const AppHandler = () => {
           errorElement: <NotFoundPage />,
           children: [
             { path: "/", element: <Navigate to="/jobs" replace /> },
-            { path: "/jobs", element: <View.jobs /> },
-            { path: "/jobs/:id/:slug?", element: <JobPage /> },
+            {
+              path: "/jobs",
+              element: <View.jobs />,
+              handle: { needs: ["jobs", "orgStructure", "jobDetails"] } satisfies RouteHandle,
+            },
+            {
+              path: "/jobs/:id/:slug?",
+              element: <JobPage />,
+              handle: { needs: ["jobs", "jobDetails", "profile"] } satisfies RouteHandle,
+            },
             {
               element: <RequireSignIn />,
               children: [
-                { path: "/profile", element: <View.profile /> },
-                { path: "/applications", element: <View.applications /> },
-                { path: "/applications/:id", element: <View.applications /> },
+                // The address Asgardeo's "Sign in" links return to: it starts the sign-in, then opens the jobs.
+                { path: "/sign-in", element: <Navigate to="/jobs" replace /> },
+                {
+                  path: "/profile",
+                  element: <View.profile />,
+                  handle: { needs: ["profile"] } satisfies RouteHandle,
+                },
+                // The job list tells whether a vacancy is still open.
+                {
+                  path: "/applications",
+                  element: <View.applications />,
+                  handle: { needs: ["jobs", "applications"] } satisfies RouteHandle,
+                },
+                {
+                  path: "/applications/:id",
+                  element: <View.applications />,
+                  handle: { needs: ["jobs", "applications"] } satisfies RouteHandle,
+                },
+                {
+                  path: "/applications/:id/documents",
+                  element: <View.documents />,
+                  handle: { needs: ["applications", "profile"] } satisfies RouteHandle,
+                },
               ],
             },
           ],

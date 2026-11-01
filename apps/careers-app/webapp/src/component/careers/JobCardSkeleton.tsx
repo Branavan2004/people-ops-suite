@@ -27,7 +27,7 @@ const JobCardSkeleton = () => (
       border: "1px solid",
       borderColor: "divider",
       borderRadius: "14px",
-      backgroundColor: "background.paper",
+      backgroundColor: "background.glass",
     }}
   >
     <Skeleton variant="rounded" width={90} height={22} sx={{ borderRadius: "999px", mb: 2 }} />

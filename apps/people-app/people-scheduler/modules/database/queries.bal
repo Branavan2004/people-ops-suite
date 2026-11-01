@@ -16,21 +16,30 @@
 
 import ballerina/sql;
 
-# Fetch employees whose Marked-leaver final day of employment has arrived (today or earlier).
+# Fetch Marked leavers whose final day of employment could be over somewhere, with the
+# timezone of their work location.
+#
+# A final day is over once the next day has begun where the employee works. No timezone is
+# more than a day ahead of UTC, so every leaver that could be due has a final day on or
+# before today in UTC; dueLeavers then keeps those whose day is over locally.
 #
 # FOR UPDATE locks the rows it reads until the sweep's transaction ends, so they cannot change
 # between this read and the update that follows it. Run it inside that transaction.
 #
-# + return - Query to select employees pending auto-transition to Left
+# + return - Query to select employees who may be due to auto-transition to Left
 isolated function getExpiredLeaversQuery() returns sql:ParameterizedQuery =>
     `SELECT
         e.employee_id,
         e.first_name,
         e.last_name,
         e.work_email,
-        r.final_day_of_employment
+        r.final_day_of_employment,
+        e.work_location,
+        cal.time_zone
     FROM employee e
     JOIN resignation r ON r.employee_id = e.id
+    LEFT JOIN companies_allowed_locations cal
+        ON cal.company_id = e.company_id AND cal.allowed_location = TRIM(e.work_location)
     WHERE e.employee_status = 'Marked leaver'
         AND r.final_day_of_employment IS NOT NULL
         AND r.final_day_of_employment <= UTC_DATE()
@@ -50,10 +59,13 @@ isolated function buildInClause(string[] values) returns sql:ParameterizedQuery 
     return clause;
 }
 
-# Transition employees whose Marked-leaver final day of employment has arrived (today or earlier) to Left.
+# Transition Marked leavers to Left.
+#
+# The date condition is the candidate window from getExpiredLeaversQuery; which of those are
+# actually due is decided per employee before this runs, and passed in as employeeIds.
 #
 # + actor - System actor performing the update
-# + employeeIds - External employee IDs to restrict the update to (from the SELECT that found them)
+# + employeeIds - External employee IDs to restrict the update to (the due ones the SELECT found)
 # + return - Query to update matching employees' status to Left
 isolated function transitionExpiredLeaversQuery(string actor, string[] employeeIds) returns sql:ParameterizedQuery {
     sql:ParameterizedQuery inClause = buildInClause(employeeIds);
@@ -70,29 +82,37 @@ isolated function transitionExpiredLeaversQuery(string actor, string[] employeeI
     );
 }
 
-# Fetch New joiners whose start date has arrived (today or earlier).
+# Fetch New joiners whose start date could have begun somewhere, with the timezone of
+# their work location.
 #
-# UTC_DATE, matching the leaver query above and the backend, which onboards someone as
-# a New joiner only when their start date is after today in UTC. FOR UPDATE locks the rows for the
-# sweep's transaction, as in getExpiredLeaversQuery.
+# Zones ahead of UTC reach a date up to a day before UTC does, so the window runs to
+# tomorrow in UTC; dueJoiners then keeps those whose start date has begun locally. FOR UPDATE
+# locks the rows for the sweep's transaction, as in getExpiredLeaversQuery.
 #
-# + return - Query to select employees due to become Active
+# + return - Query to select employees who may be due to become Active
 isolated function getDueNewJoinersQuery() returns sql:ParameterizedQuery =>
     `SELECT
         e.employee_id,
         e.first_name,
         e.last_name,
         e.work_email,
-        e.start_date
+        e.start_date,
+        e.work_location,
+        cal.time_zone
     FROM employee e
+    LEFT JOIN companies_allowed_locations cal
+        ON cal.company_id = e.company_id AND cal.allowed_location = TRIM(e.work_location)
     WHERE e.employee_status = 'New joiner'
-        AND e.start_date <= UTC_DATE()
+        AND e.start_date <= UTC_DATE() + INTERVAL 1 DAY
     FOR UPDATE;`;
 
-# Make New joiners whose start date has arrived Active.
+# Make New joiners Active.
+#
+# The date condition is the candidate window from getDueNewJoinersQuery; which of those are
+# actually due is decided per employee before this runs, and passed in as employeeIds.
 #
 # + actor - System actor performing the update
-# + employeeIds - External employee IDs to restrict the update to (from the SELECT that found them)
+# + employeeIds - External employee IDs to restrict the update to (the due ones the SELECT found)
 # + return - Query to update matching employees' status to Active
 isolated function activateDueNewJoinersQuery(string actor, string[] employeeIds) returns sql:ParameterizedQuery {
     sql:ParameterizedQuery inClause = buildInClause(employeeIds);
@@ -100,24 +120,25 @@ isolated function activateDueNewJoinersQuery(string actor, string[] employeeIds)
         `UPDATE employee e
         SET e.employee_status = 'Active', e.updated_by = ${actor}
         WHERE e.employee_status = 'New joiner'
-            AND e.start_date <= UTC_DATE()
+            AND e.start_date <= UTC_DATE() + INTERVAL 1 DAY
             AND e.employee_id IN (`,
         inClause,
         `);`
     );
 }
 
-# Fetch every pending scheduled change whose effective date has arrived.
+# Fetch every pending scheduled change whose effective date could have begun somewhere,
+# with the timezone of the employee's work location.
 #
 # Ordered by effective date then id, so two changes to the same employee land in the
 # order they were meant to take effect rather than in whatever order they were entered.
 #
-# UTC_DATE rather than CURDATE, matching the leaver query above and the backend's own
-# check that an effective date is in the future. On a server ahead of UTC the local date
-# rolls over first, so CURDATE would treat a change as due during those hours before UTC
-# agrees — applying it earlier than the date the API accepted it for.
+# Zones ahead of UTC reach a date up to a day before UTC does, so the window runs to
+# tomorrow in UTC; dueScheduledChanges then keeps those whose date has begun where the
+# employee works, the same reckoning the backend uses to accept the date as a future one.
+# UTC_DATE rather than CURDATE so the window does not move with the server's own timezone.
 #
-# + return - Query returning due scheduled_employee_change rows with employee details
+# + return - Query returning candidate scheduled_employee_change rows with employee details
 isolated function getDueScheduledChangesQuery() returns sql:ParameterizedQuery =>
     `SELECT
         sc.id,
@@ -128,12 +149,16 @@ isolated function getDueScheduledChangesQuery() returns sql:ParameterizedQuery =
         DATE_FORMAT(sc.effective_date, '%Y-%m-%d') AS effective_date,
         sc.changes,
         sc.expected,
-        sc.created_by
+        sc.created_by,
+        e.work_location,
+        cal.time_zone
      FROM scheduled_employee_change sc
      INNER JOIN employee e ON e.id = sc.employee_id
      INNER JOIN personal_info pi ON pi.id = e.personal_info_id
+     LEFT JOIN companies_allowed_locations cal
+        ON cal.company_id = e.company_id AND cal.allowed_location = TRIM(e.work_location)
      WHERE sc.status = 'PENDING'
-       AND sc.effective_date <= UTC_DATE()
+       AND sc.effective_date <= UTC_DATE() + INTERVAL 1 DAY
      ORDER BY sc.effective_date ASC, sc.id ASC`;
 
 # Move a scheduled change out of PENDING.

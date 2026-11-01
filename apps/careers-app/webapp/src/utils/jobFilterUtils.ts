@@ -74,9 +74,8 @@ export const jobShareLinks = (job: JobAddress, origin: string) => {
   ] as const;
 };
 
-// Selections within one filter combine with OR; an empty selection matches every job.
-// The results list and the per-option counts share these predicates so the
-// numbers shown next to an option always equal the results it produces.
+// Selections within one filter combine with OR; an empty selection matches every job. The results list and the
+// per-option counts share these predicates.
 
 export const matchesSearch = (job: Job, search: string): boolean => {
   const term = search.toLowerCase();

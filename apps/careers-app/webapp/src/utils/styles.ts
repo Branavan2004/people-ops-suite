@@ -14,25 +14,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { BRAND_TINT } from "@config/brand";
-
 // The fully rounded button used for primary actions across the app.
 export const pillButtonSx = { borderRadius: "999px", fontWeight: 700 } as const;
 
 // The thin border and rounded corners of a card.
 export const cardSx = { border: "1px solid", borderColor: "divider", borderRadius: "8px" } as const;
 
-// A bordered row in a list (resumes, portfolio items, documents) that lights up in the brand color on hover.
-export const rowCardSx = {
-  p: 2,
-  borderRadius: "10px",
-  border: "1px solid",
-  borderColor: "divider",
-  transition: "border-color 0.15s, background-color 0.15s",
-  "&:hover": { borderColor: "primary.main", backgroundColor: BRAND_TINT.faint },
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  flexWrap: "wrap",
-  gap: 1,
-} as const;
+// A grid cell that spans the whole row on a wide screen.
+export const fullRowSx = { gridColumn: { md: "1 / -1" } } as const;

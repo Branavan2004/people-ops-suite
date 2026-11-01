@@ -53,3 +53,13 @@ public enum EmploymentTypeName {
     PART_TIME_CONSULTANCY = "PART TIME CONSULTANCY",
     FIXED_TERM = "FIXED TERM CONTRACT"
 }
+
+# [Database] Enum for how a team member relates to the lead viewing them.
+public enum ReportingRelation {
+    # The lead is their manager
+    DIRECT,
+    # The lead is one of their additional managers, and not their manager
+    ADDITIONAL,
+    # Further down the lead's chain
+    INDIRECT
+}

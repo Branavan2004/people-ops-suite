@@ -30,3 +30,32 @@ function pathTraversalAndOddJobIdsAreRejected() {
         test:assertFalse(isValidJobId(jobId), string `Job id "${jobId}" should be rejected`);
     }
 }
+
+@test:Config {}
+function emailAddressesAreRemovedFromLoggedText() {
+    test:assertEquals(withoutEmails("failed for ada@example.test and more"), "failed for {email} and more");
+    test:assertEquals(withoutEmails("connection refused"), "connection refused");
+}
+
+@test:Config {}
+function emailAddressesAndPhoneNumbersAreRemovedFromAnUpstreamReply() {
+    string logged = withoutPersonalData("Candidate ada@example.test already exists, call +94 77 123 4567");
+    test:assertEquals(logged, "Candidate {email} already exists, call {phone}");
+    test:assertEquals(withoutPersonalData("found '+94771234567' in the history"), "found '{phone}' in the history");
+    test:assertEquals(withoutPersonalData("The ATS replied with status 502"), "The ATS replied with status 502");
+}
+
+@test:Config {}
+function aCandidatesEmailIsNotPartOfALoggedPath() {
+    string logged = withoutEmails("/candidates/ada%40example.test/histories?limit=100");
+    test:assertEquals(logged, "/candidates/{email}/histories?limit=100");
+    test:assertFalse(logged.includes("ada"));
+    test:assertFalse(logged.includes("example"));
+}
+
+@test:Config {}
+function pathsWithoutAnEmailAreLoggedAsTheyAre() {
+    test:assertEquals(withoutEmails("/vacancies/224"), "/vacancies/224");
+    test:assertEquals(withoutEmails("/vacancies?status=PUBLISHED"), "/vacancies?status=PUBLISHED");
+    test:assertEquals(withoutEmails("/org-details"), "/org-details");
+}

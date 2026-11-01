@@ -179,7 +179,7 @@ export const toJobUpdatePayload = (
   externalDesignation: values.externalDesignation,
   managerEmail: values.managerEmail,
   additionalManagerEmails: values.additionalManagerEmail ?? [],
-  probationEndDate: values.probationEndDate ?? null,
+  probationEndDate: values.probationEndDate ?? "",
   agreementEndDate: values.agreementEndDate ?? null,
   employmentTypeId:
     values.employmentTypeId > 0 ? values.employmentTypeId : null,

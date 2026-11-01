@@ -3,13 +3,19 @@
 allowedOrigins = ["http://localhost:5173"]
 port = 9099
 
-[careers_app.vacancy.vacancyConfig]
+[careers_app.vacancy.atsConfig]
 baseUrl = "http://localhost:9098"
 tokenUrl = "http://localhost:9098/token"
 clientId = "test-client"
 clientSecret = "test-secret"
 
+[careers_app.documents.storageConfig]
+baseUrl = "http://localhost:10000"
+container = "test-container"
+sasToken = "sv=test&sig=test"
+
 [careers_app.jwt.authConfig]
 jwksUrl = "http://localhost:9098/jwks"
 issuer = "https://issuer.example.test"
 audience = "test-audience"
+userInfoUrl = "http://localhost:9098/userinfo"

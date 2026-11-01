@@ -14,7 +14,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Application, CandidateProfile, EditableProfileFields, OfferAnswer } from "@/types/types";
+import {
+  Application,
+  ApplicationInterview,
+  CandidateProfile,
+  DocumentRequirements,
+  DocumentsStatus,
+  EditableProfileFields,
+  OfferAnswer,
+  OfferLetter,
+  PersonalDetails,
+} from "@/types/types";
 import { ApplicationStatus, OFFER_CONFLICT_ERROR, OFFER_EXPIRED_ERROR } from "@config/constant";
 import { isValidE164 } from "@utils/phone";
 
@@ -105,6 +115,14 @@ const applications: Application[] = [
     ],
     interviews: [
       {
+        id: "i0",
+        round: "Screening call",
+        dateTime: "2026-10-12T10:00:00",
+        mode: "Video",
+        location: "https://meet.example.com/screening",
+        status: "Completed",
+      },
+      {
         id: "i1",
         round: "Technical Interview",
         dateTime: "2026-11-05T11:00:00",
@@ -156,6 +174,69 @@ const applications: Application[] = [
     ],
   },
 ];
+
+export async function fetchInterviews(applicationId: string): Promise<ApplicationInterview[]> {
+  await delay();
+  return applications.find((a) => a.id === applicationId)?.interviews ?? [];
+}
+
+// No offer letter is kept for the mock applications.
+export async function fetchOfferLetter(): Promise<OfferLetter | null> {
+  await delay();
+  return null;
+}
+
+const MEGABYTE = 1024 * 1024;
+
+const documentRequirements: DocumentRequirements = {
+  documents: [
+    { key: "nic", label: "National identity card", required: true, group: "documents", types: ["pdf", "jpg", "png"] },
+    { key: "degree", label: "Degree certificate", required: true, group: "documents", types: ["pdf"] },
+    { key: "photo", label: "Profile photo", required: true, group: "photos", types: ["jpg", "png"], minSquareSide: 400 },
+  ],
+  maxFiles: 10,
+  maxFileBytes: 5 * MEGABYTE,
+  maxTotalBytes: 20 * MEGABYTE,
+  tshirtSizes: ["S", "M", "L", "XL"],
+  titles: ["Mr", "Ms", "Mrs", "Dr"],
+  genders: ["Male", "Female", "Other"],
+  civilStatuses: ["Single", "Married"],
+  dependantRelationships: ["Spouse", "Child", "Parent"],
+  maxDependants: 2,
+  maxEmergencyContacts: 2,
+};
+
+export async function fetchDocumentRequirements(): Promise<DocumentRequirements> {
+  await delay();
+  return structuredClone(documentRequirements);
+}
+
+// The submissions made in this session, by application, which cannot be changed afterwards.
+const submissions = new Map<string, { details: PersonalDetails; files: string[] }>();
+
+export async function fetchDocumentsStatus(applicationId: string): Promise<DocumentsStatus> {
+  await delay();
+  const submission = submissions.get(applicationId);
+  return {
+    submitted: submission !== undefined,
+    canEdit: false,
+    editableUntil: "",
+    details: submission ? structuredClone(submission.details) : null,
+    files: submission?.files ?? [],
+  };
+}
+
+export async function submitDocuments(
+  applicationId: string,
+  files: Record<string, File>,
+  details: PersonalDetails,
+): Promise<void> {
+  await delay();
+  if (submissions.has(applicationId)) {
+    throw new Error("The documents were already submitted.");
+  }
+  submissions.set(applicationId, { details: structuredClone(details), files: Object.keys(files) });
+}
 
 export async function submitFeedback(applicationId: string): Promise<void> {
   await delay();

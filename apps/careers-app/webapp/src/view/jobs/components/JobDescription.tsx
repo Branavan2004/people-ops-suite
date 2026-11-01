@@ -18,7 +18,7 @@ import DOMPurify from "dompurify";
 
 import { Box } from "@mui/material";
 
-import { proseStyles } from "@view/jobs/jobDetailStyles";
+import { offerCardStyles, proseStyles } from "@view/jobs/jobDetailStyles";
 
 interface JobDescriptionProps {
   mainContent: string | null;
@@ -34,7 +34,7 @@ const JobDescription = ({ mainContent, taskInformation, additionalContent }: Job
       <Box sx={proseStyles} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(taskInformation) }} />
     )}
     {additionalContent && (
-      <Box sx={proseStyles} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(additionalContent) }} />
+      <Box sx={offerCardStyles} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(additionalContent) }} />
     )}
   </>
 );

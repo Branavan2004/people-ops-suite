@@ -20,10 +20,12 @@ const profile = lazy(() => import("@view/profile/Profile"));
 const jobs = lazy(() => import("@view/jobs/Jobs"));
 const jobDetail = lazy(() => import("@view/jobs/JobDetail"));
 const applications = lazy(() => import("@view/applications/Applications"));
+const documents = lazy(() => import("@view/documents/Documents"));
 
 export const View = {
   profile,
   jobs,
   jobDetail,
   applications,
+  documents,
 };

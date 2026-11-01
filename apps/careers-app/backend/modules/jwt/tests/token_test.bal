@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import ballerina/jwt;
 import ballerina/test;
 
 // Header {"alg":"none"} with a payload that looks valid (right issuer and audience, far-future expiry) and no signature.
@@ -34,3 +35,58 @@ function malformedTokenIsRejected() {
 function unsignedTokenIsRejected() {
     test:assertTrue(validateToken(UNSIGNED_TOKEN) is error);
 }
+
+@test:Config {}
+function identityIsTheSubject() {
+    jwt:Payload payload = {sub: "user-1"};
+    test:assertEquals(identityOf(payload), {sub: "user-1"});
+}
+
+@test:Config {}
+function identityNeedsASubject() {
+    test:assertTrue(identityOf({iss: "issuer"}) is error);
+    test:assertTrue(identityOf({sub: ""}) is error);
+}
+
+@test:Config {}
+function detailsComeFromTheUserInfo() {
+    CallerDetails details = detailsOf({
+        "sub": "u",
+        "email": " Ada@Example.test ",
+        "given_name": " Ada ",
+        "family_name": "Lovelace",
+        "gender": "female",
+        "phone_number": "+94771234567"
+    });
+    test:assertEquals(details.email, "ada@example.test");
+    test:assertEquals(details.firstName, "Ada");
+    test:assertEquals(details.lastName, "Lovelace");
+    test:assertEquals(details.gender, "female");
+    test:assertEquals(details.contactNo, "+94771234567");
+}
+
+@test:Config {}
+function userInfoMustBelongToTheCaller() {
+    test:assertTrue(isUserInfoOf({"sub": "user-1", "email": "ada@example.test"}, "user-1"));
+    test:assertFalse(isUserInfoOf({"sub": "user-2", "email": "ada@example.test"}, "user-1"));
+    test:assertFalse(isUserInfoOf({"email": "ada@example.test"}, "user-1"));
+    test:assertFalse(isUserInfoOf({"sub": 1}, "1"));
+    test:assertFalse(isUserInfoOf("not an object", "user-1"));
+}
+
+@test:Config {}
+function aRefusedAccessTokenIsToldApartFromOtherFailures() {
+    error refused = error UserInfoRefused("refused");
+    error other = error("unreadable reply");
+    test:assertTrue(refused is UserInfoRefused);
+    test:assertFalse(other is UserInfoRefused);
+}
+
+@test:Config {}
+function missingUserInfoValuesAreEmptyText() {
+    CallerDetails unknown = {};
+    test:assertEquals(detailsOf({"sub": "u", "email": "  "}), unknown);
+    test:assertEquals(detailsOf({"sub": "u", "given_name": 5}), unknown);
+    test:assertEquals(detailsOf("not an object"), unknown);
+}
+

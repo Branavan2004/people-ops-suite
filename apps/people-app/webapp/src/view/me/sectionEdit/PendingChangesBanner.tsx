@@ -50,19 +50,18 @@ const COLUMN_LABELS: Record<string, string> = {
   additional_manager_emails: "Additional Leads",
 };
 
-// Effective dates are held and acted on as UTC calendar dates: the sweep compares
-// effective_date against the server's own date, so a change dated the 16th applies on
-// the 16th whoever is reading. Rendered with timeZone: "UTC" so the day shown is the day
-// stored — a date-only string parses as midnight UTC, and formatting that in the
-// reader's own zone would show the 15th anywhere west of UTC — and labelled so the date
-// is not read as local.
-const formatDate = (date: string) =>
-  `${new Date(date).toLocaleDateString(undefined, {
+// Effective dates are calendar days where the employee works: the sweep applies a change
+// dated the 16th once the 16th begins at their work location, whoever is reading. Rendered
+// with timeZone: "UTC" only so the day shown is the day stored — a date-only string parses
+// as midnight UTC, and formatting that in the reader's own zone would show the 15th
+// anywhere west of UTC.
+export const formatDate = (date: string) =>
+  new Date(date).toLocaleDateString(undefined, {
     day: "numeric",
     month: "short",
     year: "numeric",
     timeZone: "UTC",
-  })} UTC`;
+  });
 
 /**
  * The changes queued against this section, shown above it.

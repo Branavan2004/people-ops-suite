@@ -28,14 +28,14 @@ configurable int maxStaleSeconds = 21600;
 # Seconds a failed load is remembered, doubling with each failure in a row. From 1 to 60.
 configurable int failFastSeconds = 5;
 
-const int MAX_FAIL_FAST_SECONDS = 60;
-const int MAX_CACHED_ENTRIES = 500;
-const int MAX_REMEMBERED_FAILURES = 1000;
-const int MAX_BACKOFF_DOUBLINGS = 6;
+const MAX_FAIL_FAST_SECONDS = 60;
+const MAX_CACHED_ENTRIES = 500;
+const MAX_REMEMBERED_FAILURES = 1000;
+const MAX_BACKOFF_DOUBLINGS = 6;
 const decimal WAIT_STEP_SECONDS = 0.05;
-// The most seconds one load can take: two token requests and two reads, plus a margin.
-const decimal LONGEST_LOAD_SECONDS = 4 * UPSTREAM_TIMEOUT_SECONDS + 5;
-const string WARM_UP_REQUEST_ID = "startup-warm-up";
+// The most seconds one load can take: eight upstream calls plus a margin.
+const decimal LONGEST_LOAD_SECONDS = 8 * UPSTREAM_TIMEOUT_SECONDS + 5;
+const WARM_UP_REQUEST_ID = "startup-warm-up";
 
 type CachedBody record {|
     json value;
@@ -50,7 +50,7 @@ type FailedLoad record {|
 |};
 
 // Failures further apart than this many back-offs count as separate.
-const int RESET_AFTER_BACKOFFS = 2;
+const RESET_AFTER_BACKOFFS = 2;
 
 // The number of failures in a row that this failure makes.
 isolated function failureCount(FailedLoad? previous, int now, int failFast) returns int {
@@ -77,7 +77,7 @@ isolated function jsonBodyOf(http:Response resp) returns json|error {
 
 isolated function replyFor(FailedLoad failed) returns http:Response|error {
     if failed.status == 0 {
-        return error("The vacancy service could not be reached");
+        return error("The ATS could not be reached");
     }
     http:Response resp = new;
     resp.statusCode = failed.status;
@@ -101,6 +101,12 @@ public isolated class VacancyCache {
             defaultMaxAge: <decimal>maxStale,
             cleanupInterval: 3600
         });
+    }
+
+    # The cached JSON for the key, or nothing when there is none; it is never loaded from the upstream.
+    public isolated function peek(string key) returns json {
+        CachedBody? cached = self.lookup(key);
+        return cached is CachedBody ? cached.value : ();
     }
 
     # The cached JSON for the key, loaded from the upstream when missing.
@@ -139,7 +145,7 @@ public isolated class VacancyCache {
             }
             runtime:sleep(WAIT_STEP_SECONDS);
         }
-        return error("Timed out waiting for the vacancy service");
+        return error("Timed out waiting for the ATS");
     }
 
     isolated function load(string key, isolated function () returns http:Response|error call)
@@ -286,6 +292,9 @@ final VacancyCache vacancyCache = check createCache();
 # The cached job list.
 public isolated function cachedJobs(string requestId) returns json|http:Response|error =>
     vacancyCache.get("jobs", isolated function() returns http:Response|error => listJobs(requestId));
+
+# The cached job list when there is one; it is never loaded.
+public isolated function cachedJobsIfPresent() returns json => vacancyCache.peek("jobs");
 
 # The cached org structure.
 public isolated function cachedOrgStructure(string requestId) returns json|http:Response|error =>

@@ -15,10 +15,10 @@
 // under the License.
 
 # The largest CV accepted, in bytes.
-public const int MAX_CV_BYTES = 5 * 1024 * 1024;
+public const MAX_CV_BYTES = 5 * 1024 * 1024;
 
 # The largest request body accepted: the CV plus the other form fields.
-public const int MAX_REQUEST_BYTES = 6 * 1024 * 1024;
+public const MAX_REQUEST_BYTES = 6 * 1024 * 1024;
 
 # The details an applicant submits, with the CV's raw bytes.
 public type ApplicationForm record {|
@@ -27,5 +27,6 @@ public type ApplicationForm record {|
     string email;
     string phone;
     string address;
+    string university?;
     byte[] cv;
 |};

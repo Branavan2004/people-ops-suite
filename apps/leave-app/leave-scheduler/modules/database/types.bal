@@ -42,9 +42,9 @@ public type SabbaticalReminder record {|
     int id;
     # Email of the employee taking the sabbatical
     string email;
-    # Email of the lead who approved the sabbatical
+    # Email of the lead who approved the sabbatical; the fallback recipient when HR has no lead
     @sql:Column {name: "approver_email"}
-    string approverEmail;
+    string? approverEmail;
     # Leave start date (yyyy-mm-dd)
     @sql:Column {name: "start_date"}
     string startDate;

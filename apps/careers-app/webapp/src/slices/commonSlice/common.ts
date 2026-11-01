@@ -29,7 +29,7 @@ const initialState: CommonState = {
   type: "success",
 };
 
-export const CommonSlice = createSlice({
+const CommonSlice = createSlice({
   name: "common",
   initialState,
   reducers: {
@@ -44,8 +44,14 @@ export const CommonSlice = createSlice({
       state.type = action.payload.type;
       state.timestamp = Date.now();
     },
+    // Clears the message only if it is still the one shown, so a message queued since is not lost.
+    clearSnackbarMessage: (state, action: PayloadAction<number>) => {
+      if (state.timestamp !== action.payload) return;
+      state.message = "";
+      state.timestamp = null;
+    },
   },
 });
 
-export const { enqueueSnackbarMessage } = CommonSlice.actions;
+export const { enqueueSnackbarMessage, clearSnackbarMessage } = CommonSlice.actions;
 export default CommonSlice.reducer;

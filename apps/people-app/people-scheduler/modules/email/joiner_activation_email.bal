@@ -30,11 +30,13 @@ const string FUTURE_JOINER_EMAIL = "future-joiner@wso2.com";
 # + activations - Employees that were activated during this sweep (must be non-empty)
 # + return - Error if the email notification fails to send
 public isolated function notifyJoinerActivation(database:JoinerActivation[] activations) returns error? {
-    string runDate = time:utcToString(time:utcNow()).substring(0, 10);
+    [string, string] [summaryDate, heading] = summaryDateAndHeading(
+            from database:JoinerActivation a in activations select a.startDate,
+            from database:JoinerActivation a in activations select a.workLocation);
 
     map<string> keyValues = {
         APP_NAME: appName,
-        RUN_DATE: runDate,
+        SUMMARY_DATE: summaryDate,
         COUNT: activations.length().toString(),
         PENDING_EMAIL_NOTE: buildPendingEmailNote(activations),
         EMPLOYEE_LIST: buildActivationRows(activations),
@@ -53,7 +55,8 @@ public isolated function notifyJoinerActivation(database:JoinerActivation[] acti
     EmailPayload emailPayload = {
         to: recipients,
         'from: emailServiceConfig.'from,
-        subject: string `Employee Onboarding Alert (${runDate}): ${activations.length()} employee(s) transitioned to Active`,
+        subject: string `Employee Onboarding Alert (${heading}): ` +
+            string `${activations.length()} employee(s) transitioned to Active`,
         template: boundTemplate
     };
 
@@ -72,7 +75,8 @@ public isolated function notifyJoinerActivation(database:JoinerActivation[] acti
         log:printError(customError, responseBody = responseBody is json ? responseBody.toJsonString() : responseBody.message());
         return error(customError);
     }
-    log:printInfo(string `Joiner activation summary email sent on ${runDate} for ${activations.length()} joiner(s)`);
+    log:printInfo(string `Joiner activation summary email sent for ${summaryDate}` +
+            string ` with ${activations.length()} joiner(s)`);
 }
 
 # Whether an activated employee is still on the placeholder work email.
@@ -130,7 +134,7 @@ isolated function buildActivationRows(database:JoinerActivation[] activations) r
         if a.startDate != currentDate {
             currentDate = a.startDate;
             int dateCount = countsByDate[currentDate] ?: 0;
-            rows += string `<tr><td colspan="4" style="padding:9px 16px; background-color:#eef2f6;` +
+            rows += string `<tr><td colspan="5" style="padding:9px 16px; background-color:#eef2f6;` +
                 string ` border-top:1px solid #d8dfe6; border-bottom:1px solid #d8dfe6; font-size:13px;` +
                 string ` font-weight:bold; color:#33455c;">` +
                 string `${htmlEscape(formatDisplayDate(currentDate))} <span style="font-weight:normal; color:#6b7a8c;">` +
@@ -143,6 +147,7 @@ isolated function buildActivationRows(database:JoinerActivation[] activations) r
             string `<td style="${cellBase} padding-left:16px; white-space:nowrap;">${htmlEscape(a.employeeId)}</td>` +
             string `<td style="${cellBase}">${htmlEscape(a.firstName)} ${htmlEscape(a.lastName)}</td>` +
             string `<td style="${cellBase}">${emailCell}</td>` +
+            string `<td style="${cellBase}">${htmlEscape(database:locationLabel(a.workLocation, a.timeZone))}</td>` +
             string `<td align="right" style="${cellBase} padding-right:16px; white-space:nowrap;` +
             string ` color:#7a8899;">${htmlEscape(formatDisplayDate(a.startDate))}</td>` +
             string `</tr>`;

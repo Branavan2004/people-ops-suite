@@ -19,6 +19,8 @@ export const SnackMessage = {
     profileUpdated: "Profile updated successfully!",
     offerDeclined: "You declined the offer.",
     feedbackSent: "Thank you for your feedback.",
+    documentsSent: "Your documents were submitted.",
+    documentsUpdated: "Your changes were saved.",
   },
   error: {
     fetchApplications: "Unable to retrieve your applications.",
@@ -29,6 +31,13 @@ export const SnackMessage = {
     sendFeedback: "Unable to send your feedback. Please try again.",
     offerConflict: "This offer was already answered, or you have already accepted another offer.",
     offerExpired: "This offer has expired. Please contact the recruitment team if you still want to join.",
+    fetchDocumentRequirements: "Unable to load the list of documents. Please try again.",
+    submitDocuments: "Unable to submit your documents. Please try again.",
+    sessionEndedOnSubmit: "Your session has ended. Please sign in again to submit your documents.",
+    documentsAlreadySent: "Your documents were already submitted for this application.",
+    documentsNotAllowed: "Documents can't be submitted for this application.",
+    documentsTooLarge: "The files are too large to send.",
+    documentsTooManyAttempts: "Too many attempts. Please try again later.",
   },
   warning: {},
 };

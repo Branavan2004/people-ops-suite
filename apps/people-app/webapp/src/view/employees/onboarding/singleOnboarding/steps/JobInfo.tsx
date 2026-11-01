@@ -870,6 +870,12 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
     computeAgreementEndDate,
   ]);
 
+  const [addProbationEndDate, setAddProbationEndDate] = useState(false);
+
+  useEffect(() => {
+    if (values.probationEndDate) setAddProbationEndDate(true);
+  }, [values.probationEndDate]);
+
   const matchedProbationLocation = useMemo(() => {
     if (!values.companyId || !values.workLocation || !companies.length)
       return null;
@@ -884,6 +890,18 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
     );
   }, [values.companyId, values.workLocation, companies]);
 
+  const probationHelperText = (() => {
+    if (touched.probationEndDate && errors.probationEndDate) {
+      return errors.probationEndDate;
+    }
+    if (!matchedProbationLocation) return undefined;
+
+    const probationMonths = matchedProbationLocation.probationPeriod ?? null;
+    return probationMonths === null
+      ? "N/A — No probation for this location"
+      : `Auto-calculated: ${probationMonths} months from start date`;
+  })();
+
   useEffect(() => {
     // Wait for employment types to load — isPermanent/isProbationType both read
     // false on an empty list, which would otherwise clear an edit-mode value
@@ -891,11 +909,8 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
     if (employmentTypes.length === 0) return;
 
     // Permanent and Probation both derive their probation end date from the
-    // work location's configured probation period.
-    if (!isPermanent && !isProbationType) {
-      setFieldValue("probationEndDate", null);
-      return;
-    }
+    // work location's configured probation period; other types do so once added.
+    if (!isPermanent && !isProbationType && !addProbationEndDate) return;
 
     if (isEditMode && values.probationEndDate) return;
 
@@ -928,6 +943,7 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
     employmentTypes.length,
     isPermanent,
     isProbationType,
+    addProbationEndDate,
     isEditMode,
     values.startDate,
     matchedProbationLocation,
@@ -948,6 +964,16 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
       const isNewConsultancy = /consultancy/i.test(typeName);
       const isAutoIdType = AUTO_ID_EMPLOYMENT_TYPES.test(typeName);
 
+      const isNewProbation = PROBATION_EMPLOYMENT_TYPE.test(typeName);
+
+      if (
+        (!isNewPermanent && !isNewProbation) ||
+        (!isPermanent && !isProbationType)
+      ) {
+        setFieldValue("probationEndDate", null);
+        setAddProbationEndDate(false);
+      }
+
       if (isNewInternship) {
         setInternshipDurationMonths(6);
         setFieldValue("employeeId", "");
@@ -961,7 +987,14 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
         if (isAutoIdType) setFieldValue("employeeId", "");
       }
     },
-    [setFieldValue, employmentTypes, computeAgreementEndDate, values.startDate],
+    [
+      setFieldValue,
+      employmentTypes,
+      computeAgreementEndDate,
+      values.startDate,
+      isPermanent,
+      isProbationType,
+    ],
   );
 
   const handleInternshipDurationChange = useCallback(
@@ -1832,18 +1865,7 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
                     error: Boolean(
                       touched.probationEndDate && errors.probationEndDate,
                     ),
-                    helperText: (() => {
-                      if (touched.probationEndDate && errors.probationEndDate) {
-                        return errors.probationEndDate;
-                      }
-                      if (!matchedProbationLocation) return undefined;
-
-                      const probationMonths =
-                        matchedProbationLocation.probationPeriod ?? null;
-                      return probationMonths === null
-                        ? "N/A — No probation for this location"
-                        : `Auto-calculated: ${probationMonths} months from start date`;
-                    })(),
+                    helperText: probationHelperText,
                     sx: textFieldSx,
                   },
                 }}
@@ -1884,6 +1906,54 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
                   },
                 }}
               />
+            </Grid>
+          ) : null}
+          {!isPermanent && !isProbationType && values.employmentTypeId > 0 ? (
+            <Grid
+              item
+              xs={12}
+              sm={6}
+              md={3}
+              sx={{ display: "flex", alignItems: "center" }}
+            >
+              {addProbationEndDate ? (
+                <DatePicker
+                  label="Probation End Date"
+                  value={
+                    values.probationEndDate
+                      ? dayjs(values.probationEndDate)
+                      : null
+                  }
+                  onChange={(val) => {
+                    setFieldValue(
+                      "probationEndDate",
+                      val ? val.format("YYYY-MM-DD") : null,
+                    );
+                    if (!val) setAddProbationEndDate(false);
+                  }}
+                  slotProps={{
+                    field: { clearable: true },
+                    textField: {
+                      fullWidth: true,
+                      error: Boolean(
+                        touched.probationEndDate && errors.probationEndDate,
+                      ),
+                      helperText: probationHelperText,
+                      sx: textFieldSx,
+                    },
+                  }}
+                />
+              ) : (
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={false}
+                      onChange={() => setAddProbationEndDate(true)}
+                    />
+                  }
+                  label="Probation"
+                />
+              )}
             </Grid>
           ) : null}
         </Grid>

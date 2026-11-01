@@ -18,9 +18,9 @@ import ballerina/http;
 import ballerina/uuid;
 
 # The header that carries the request id to and from other services.
-public const string REQUEST_ID_HEADER = "X-Request-ID";
+public const REQUEST_ID_HEADER = "X-Request-ID";
 
-const string CTX_REQUEST_ID = "careers-app-request-id";
+const CTX_REQUEST_ID = "careers-app-request-id";
 
 // Letters, digits and "-" only, so a caller's id cannot forge or split log lines.
 final string:RegExp REQUEST_ID_PATTERN = re `[A-Za-z0-9-]{8,64}`;

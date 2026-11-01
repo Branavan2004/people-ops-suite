@@ -3,3 +3,4 @@
 jwksUrl = "http://localhost:9098/jwks"
 issuer = "https://issuer.example.test"
 audience = "test-audience"
+userInfoUrl = "http://localhost:9098/userinfo"

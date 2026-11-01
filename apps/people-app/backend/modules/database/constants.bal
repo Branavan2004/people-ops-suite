@@ -74,3 +74,7 @@ public const FUTURE_JOINER_EMAIL = "future-joiner@wso2.com";
 # Work email held by former employees whose real address is not on record. Like
 # FUTURE_JOINER_EMAIL it is shared and never identifies a person.
 public const EX_EMPLOYEE_EMAIL = "ex-employee@wso2.com";
+
+# Where HR works. Used as the local timezone for an employee whose work location has no
+# usable timezone on record, so whether they have started is still decided.
+public const DEFAULT_TIME_ZONE = "Asia/Colombo";

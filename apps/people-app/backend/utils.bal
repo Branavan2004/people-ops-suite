@@ -387,6 +387,7 @@ isolated function loadBulkReferenceData() returns BulkRefData|error {
     future<database:EmploymentType[]|error> et = start database:getEmploymentTypes();
     future<database:CompanyResponse[]|error> c = start database:getCompanies();
     future<database:Office[]|error> o = start database:getOffices();
+    future<map<string>|error> lt = start database:getLocationTimeZones();
 
     database:BusinessUnit[] businessUnits = check wait bu;
     database:Team[] teams = check wait t;
@@ -396,6 +397,7 @@ isolated function loadBulkReferenceData() returns BulkRefData|error {
     database:EmploymentType[] employmentTypes = check wait et;
     database:CompanyResponse[] companies = check wait c;
     database:Office[] offices = check wait o;
+    map<string> locationTimeZones = check wait lt;
 
     return {
         businessUnitIds: map from database:BusinessUnit bu_row in businessUnits
@@ -416,7 +418,8 @@ isolated function loadBulkReferenceData() returns BulkRefData|error {
         companyIds: map from database:CompanyResponse c_row in companies
             select [normalizeKey(c_row.name), c_row.id],
         officeIds: map from database:Office o_row in offices
-            select [normalizeKey(o_row.name), o_row.id]
+            select [normalizeKey(o_row.name), o_row.id],
+        locationTimeZones
     };
 }
 
@@ -633,15 +636,19 @@ isolated function buildBulkEmployeePayload(BulkEmployeeCsvRow row, BulkRefData r
         ];
     }
 
+    int companyId = refData.companyIds[normalizeKey(row.company)] ?: 0;
+    string workLocation = row.workLocation.trim();
+    string today = database:localDateAt(refData.locationTimeZones, companyId, workLocation, time:utcNow());
+
     return {
         firstName,
         lastName,
         epf: row.epf.trim().length() > 0 ? row.epf.trim() : (),
-        companyId: refData.companyIds[normalizeKey(row.company)] ?: 0,
-        workLocation: row.workLocation.trim(),
+        companyId,
+        workLocation,
         workEmail: row.workEmail.trim().length() > 0 ? row.workEmail.trim() : (),
         startDate: row.startDate.trim(),
-        employeeStatus: database:initialEmployeeStatus(row.startDate.trim(), todayUtc()),
+        employeeStatus: database:initialEmployeeStatus(row.startDate.trim(), today),
         managerEmail: row.managerEmail.trim(),
         secondaryJobTitle: row.secondaryJobTitle.trim().length() > 0 ? row.secondaryJobTitle.trim() : (),
         employmentTypeId: refData.employmentTypeIds[normalizeKey(row.employmentType)] ?: 0,
@@ -1106,26 +1113,28 @@ final readonly & map<string> SCHEDULABLE_COLUMN_SOURCES = {
     "house_id": "houseId"
 };
 
-# True when a date string is later than today, in the server's own reckoning of today.
+# True when a date string is later than today where the employee works.
 #
-# Today is excluded rather than allowed: the sweep runs once a day, so a change dated
-# today is applied immediately if the sweep has yet to run and a day late if it has
-# already run. Which of those happens would depend on the time of day it was scheduled,
-# so it is refused and the caller is told to apply now or pick a later date.
+# Today is excluded rather than allowed: the sweep applies a change once its date has begun
+# where the employee works, so a change dated today would land at the next hourly run. That
+# is an edit made now in all but name, so it is refused and the caller is told to apply now
+# or pick a later date.
 #
 # + date - Date in YYYY-MM-DD form
+# + today - Today's date where the employee works, from todayAt
 # + return - True when the date is tomorrow or later
-isolated function isFutureDate(string date) returns boolean {
-    time:Utc tomorrow = time:utcAddSeconds(time:utcNow(), 86400);
-    string tomorrowDate = time:utcToString(tomorrow).substring(0, 10);
-    return date >= tomorrowDate;
-}
+isolated function isFutureDate(string date, string today) returns boolean =>
+    date > today;
 
-# Today's date in UTC, the same reckoning of today the scheduler uses.
+# Today's date where an employee works, the same reckoning the scheduler acts on.
 #
-# + return - Today's date in YYYY-MM-DD form
-isolated function todayUtc() returns string =>
-    time:utcToString(time:utcNow()).substring(0, 10);
+# + companyId - Employee's company ID
+# + workLocation - Employee's work location
+# + return - Today's date in YYYY-MM-DD form, or an error if the location timezones cannot be read
+isolated function todayAt(int companyId, string workLocation) returns string|error {
+    map<string> locationTimeZones = check database:getLocationTimeZones();
+    return database:localDateAt(locationTimeZones, companyId, workLocation, time:utcNow());
+}
 
 # Translate a job-info payload into the columns a scheduled change writes.
 #
@@ -1153,7 +1162,9 @@ isolated function toSchedulableColumns(database:UpdateEmployeeJobInfoPayload pay
         if !SCHEDULABLE_FIELD_COLUMNS.hasKey('field) {
             return error(string `${'field} cannot be scheduled for a future date`);
         }
-        columns[SCHEDULABLE_FIELD_COLUMNS.get('field)] = value;
+        // An empty probation end date is a request to clear it; the scheduler sets NULL from a null value.
+        json columnValue = 'field == "probationEndDate" && value == "" ? () : value;
+        columns[SCHEDULABLE_FIELD_COLUMNS.get('field)] = columnValue;
     }
 
     if columns.length() == 0 {

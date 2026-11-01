@@ -17,7 +17,7 @@
 import { useAuthContext } from "@asgardeo/auth-react";
 import { useIdleTimer } from "react-idle-timer";
 
-import React, { useCallback, useContext, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import PreLoader from "@component/common/PreLoader";
 import SessionWarningDialog from "@component/common/SessionWarningDialog";
@@ -31,15 +31,28 @@ type AuthContextType = {
   isSignedIn: boolean;
   // The access token for a signed-in user, or an empty string for a guest.
   getToken: () => Promise<string>;
+  // A new access token for a signed-in user whose token has expired, got without leaving the page. It fails when the
+  // sign-in cannot be renewed that way, and the user has to sign in again.
+  renewToken: () => Promise<string>;
 };
 
 const AuthContext = React.createContext<AuthContextType>({} as AuthContextType);
 
-const timeout = 15 * 60 * 1000;
-const promptBeforeIdle = 4_000;
+// How long a signed-in user can be inactive before the sign-out warning opens, and how long it stays open.
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const WARNING_MS = 60 * 1000;
 
 const AppAuthProvider = (props: { children: React.ReactNode }) => {
-  const { signIn, signOut, state, getBasicUserInfo, getDecodedIDToken, getAccessToken } = useAuthContext();
+  const {
+    signIn,
+    signOut,
+    state,
+    getBasicUserInfo,
+    getDecodedIDToken,
+    getAccessToken,
+    refreshAccessToken,
+    trySignInSilently,
+  } = useAuthContext();
   const isAuthenticated = state.isAuthenticated;
   const isLoading = state.isLoading;
 
@@ -47,22 +60,6 @@ const AppAuthProvider = (props: { children: React.ReactNode }) => {
   const [userLoaded, setUserLoaded] = useState<boolean>(false);
 
   const dispatch = useAppDispatch();
-
-  const onPrompt = () => {
-    if (isAuthenticated) setSessionWarningOpen(true);
-  };
-
-  const { activate } = useIdleTimer({
-    onPrompt,
-    timeout,
-    promptBeforeIdle,
-    throttle: 500,
-  });
-
-  const handleContinue = () => {
-    setSessionWarningOpen(false);
-    activate();
-  };
 
   useEffect(() => {
     if (userLoaded) return;
@@ -91,17 +88,61 @@ const AppAuthProvider = (props: { children: React.ReactNode }) => {
     signOut();
   }, [signOut]);
 
+  // Signs the user out of the app and the identity provider once the inactivity period ends, so an unattended browser
+  // does not stay signed in.
+  const onIdle = () => {
+    if (!isAuthenticated) return;
+    setSessionWarningOpen(false);
+    appSignOut();
+  };
+
+  const { activate } = useIdleTimer({
+    onPrompt: () => {
+      if (isAuthenticated) setSessionWarningOpen(true);
+    },
+    onIdle,
+    timeout: IDLE_TIMEOUT_MS,
+    promptBeforeIdle: WARNING_MS,
+    throttle: 500,
+    // Activity in any open tab counts, and the sign-out reaches every tab.
+    crossTab: true,
+  });
+
+  const handleContinue = () => {
+    setSessionWarningOpen(false);
+    activate();
+  };
+
+  // The identity provider's functions change on every render, so they are read through a ref. That keeps getToken and
+  // renewToken stable, and the pages that load data when they change do not reload on a theme switch.
+  const sdk = useRef({ getAccessToken, refreshAccessToken, trySignInSilently });
+  sdk.current = { getAccessToken, refreshAccessToken, trySignInSilently };
+
   // Guests browse and apply without a token; calls made on their behalf send no credentials.
   const getToken = useCallback(async () => {
     if (!isAuthenticated) return "";
     try {
-      return await getAccessToken();
+      return await sdk.current.getAccessToken();
     } catch {
       return "";
     }
-  }, [isAuthenticated, getAccessToken]);
+  }, [isAuthenticated]);
 
-  const authContext: AuthContextType = { appSignIn, appSignOut, isSignedIn: isAuthenticated, getToken };
+  // Renews the access token with the refresh token, and when there is none, through the user's session with the
+  // identity provider.
+  const renewToken = useCallback(async () => {
+    try {
+      await sdk.current.refreshAccessToken();
+    } catch {
+      if (!(await sdk.current.trySignInSilently())) throw new Error("The session could not be renewed.");
+    }
+    return sdk.current.getAccessToken();
+  }, []);
+
+  const authContext: AuthContextType = useMemo(
+    () => ({ appSignIn, appSignOut, isSignedIn: isAuthenticated, getToken, renewToken }),
+    [appSignIn, appSignOut, isAuthenticated, getToken, renewToken],
+  );
 
   if (isLoading) {
     return <PreLoader isLoading message="Setting up your Candidate Passport ..." />;
@@ -109,11 +150,7 @@ const AppAuthProvider = (props: { children: React.ReactNode }) => {
 
   return (
     <AuthContext.Provider value={authContext}>
-      <SessionWarningDialog
-        open={sessionWarningOpen}
-        handleContinue={handleContinue}
-        appSignOut={appSignOut}
-      />
+      <SessionWarningDialog open={sessionWarningOpen} handleContinue={handleContinue} appSignOut={appSignOut} />
       {isAuthenticated && !userLoaded ? (
         <PreLoader isLoading message="Setting up your Candidate Passport ..." />
       ) : (

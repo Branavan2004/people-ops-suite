@@ -56,8 +56,10 @@ public type SabbaticalReminderDetails record {|
     string employeeName;
     # Email of the employee taking the sabbatical
     string employeeEmail;
-    # Email of the lead who approved the sabbatical
+    # Email of the lead the reminder is sent to
     string leadEmail;
+    # First name of the lead, for the greeting
+    string leadName;
     # Leave start date (yyyy-mm-dd)
     string startDate;
     # Leave end date (yyyy-mm-dd)

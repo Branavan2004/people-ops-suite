@@ -16,6 +16,7 @@
 
 import ballerina/log;
 import ballerina/sql;
+import ballerina/time;
 
 # Check the affected row count after an update operation.
 #
@@ -28,7 +29,10 @@ isolated function checkAffectedCount(int? affectedRowCount) returns error? {
     return;
 }
 
-# Auto-transition employees whose Marked-leaver final day of employment has arrived (today or earlier) to Left.
+# Auto-transition Marked leavers whose final day of employment is over where they work to Left.
+#
+# The day is over at the local midnight that ends it, in the timezone of the employee's work
+# location (see dueLeavers), so the sweep runs often enough to catch each location's midnight.
 #
 # The due employees are read and updated in one transaction, with their rows locked by the
 # read (see getExpiredLeaversQuery). An edit landing between the two, such as a final day
@@ -40,11 +44,13 @@ isolated function checkAffectedCount(int? affectedRowCount) returns error? {
 public isolated function transitionExpiredLeavers(string actor) returns LeaverTransition[]|error {
     log:printInfo("Loading employees due for leaver transition");
 
+    time:Utc now = time:utcNow();
     LeaverTransition[] transitions = [];
     transaction {
         stream<LeaverTransition, error?> expiredLeaversStream = databaseClient->query(getExpiredLeaversQuery());
-        transitions = check from LeaverTransition transition in expiredLeaversStream
+        LeaverTransition[] candidates = check from LeaverTransition transition in expiredLeaversStream
             select transition;
+        transitions = dueLeavers(candidates, now);
 
         log:printInfo("Loaded employees due for leaver transition", count = transitions.length());
 
@@ -64,7 +70,10 @@ public isolated function transitionExpiredLeavers(string actor) returns LeaverTr
     return transitions;
 }
 
-# Make New joiners whose start date has arrived (today or earlier) Active.
+# Make New joiners whose start date has begun where they work Active.
+#
+# The date begins at local midnight in the timezone of the employee's work location (see
+# dueJoiners), so the sweep runs often enough to catch each location's midnight.
 #
 # Read and updated in one transaction with the rows locked, for the same reason as
 # transitionExpiredLeavers: the list returned for the summary email is exactly what was updated.
@@ -74,11 +83,13 @@ public isolated function transitionExpiredLeavers(string actor) returns LeaverTr
 public isolated function activateDueNewJoiners(string actor) returns JoinerActivation[]|error {
     log:printInfo("Loading new joiners due for activation");
 
+    time:Utc now = time:utcNow();
     JoinerActivation[] activations = [];
     transaction {
         stream<JoinerActivation, error?> dueJoinersStream = databaseClient->query(getDueNewJoinersQuery());
-        activations = check from JoinerActivation activation in dueJoinersStream
+        JoinerActivation[] candidates = check from JoinerActivation activation in dueJoinersStream
             select activation;
+        activations = dueJoiners(candidates, now);
 
         log:printInfo("Loaded new joiners due for activation", count = activations.length());
 
@@ -142,7 +153,10 @@ final readonly & map<string> SCHEDULABLE_COLUMNS = {
 # up with. Not a column: it is a separate table, synced rather than assigned.
 const string ADDITIONAL_MANAGERS_KEY = "additional_manager_emails";
 
-# Apply every scheduled change whose effective date has arrived.
+# Apply every scheduled change whose effective date has begun where the employee works.
+#
+# The date begins at local midnight in the timezone of the employee's work location (see
+# dueScheduledChanges), so the sweep runs often enough to catch each location's midnight.
 #
 # The employee row is written by a plain UPDATE and the additional managers by the same
 # add/deactivate sync an edit made by hand performs, so the audit triggers fire exactly
@@ -164,9 +178,11 @@ public isolated function applyDueScheduledChanges(string actor)
 
     log:printInfo("Loading scheduled changes due for application");
 
+    time:Utc now = time:utcNow();
     stream<ScheduledChange, error?> dueStream = databaseClient->query(getDueScheduledChangesQuery());
-    ScheduledChange[] due = check from ScheduledChange change in dueStream
+    ScheduledChange[] candidates = check from ScheduledChange change in dueStream
         select change;
+    ScheduledChange[] due = dueScheduledChanges(candidates, now);
 
     log:printInfo("Loaded scheduled changes due for application", count = due.length());
 
@@ -568,6 +584,8 @@ isolated function closeWith(ScheduledChange change, string employeeName, string[
         effectiveDate: change.effectiveDate,
         status: closeFailure is string ? SCHEDULED_CHANGE_FAILED : status,
         failureReason: closeFailure ?: failureReason,
-        fields
+        fields,
+        workLocation: change.workLocation,
+        timeZone: change.timeZone
     };
 }

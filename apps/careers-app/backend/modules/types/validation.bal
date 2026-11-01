@@ -14,6 +14,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-# Whether the value is a vacancy id (digits only). A path segment like "..%2Forg-structure" decodes to
-# "../org-structure", so nothing else may reach the upstream URL or count as a public route.
+# Whether the value is a vacancy id (digits only); nothing else may reach the upstream URL or count as a public route.
 public isolated function isValidJobId(string jobId) returns boolean => re `[0-9]+`.isFullMatch(jobId);
+
+# The text with every email address, plain or URL-encoded, replaced, so that it is safe to write to a log.
+public isolated function withoutEmails(string text) returns string =>
+    re `[^\s/?&=]+(%40|@)[^\s/?&=]+`.replaceAll(text, "{email}");
+
+# The text with email addresses and phone numbers replaced, so that an upstream reply or an error quoting a value is
+# safe to write to a log.
+public isolated function withoutPersonalData(string text) returns string =>
+    re `\+?\d[\d\s\-()]{5,}\d`.replaceAll(withoutEmails(text), "{phone}");

@@ -20,12 +20,13 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 
 import { State } from "@/types/types";
-import { PAGE_MAX_WIDTH } from "@config/brand";
+import { PAGE_MARGIN_X, PAGE_PADDING_X } from "@config/brand";
 import { JOB_NOT_FOUND_ERROR } from "@config/constant";
 import { useAppAuthContext } from "@context/AuthContext";
-import { loadJobDetail, toggleSaveJob } from "@slices/careersSlice/careers";
+import { loadJobDetail } from "@slices/careersSlice/careers";
 import { RootState, useAppDispatch, useAppSelector } from "@slices/store";
 import { jobPath, opensDirectly, withoutArrivalMark } from "@utils/jobFilterUtils";
+import { toggleSavedJob } from "@utils/savedJobs";
 import ApplySection from "@view/jobs/components/ApplySection";
 import JobDescription from "@view/jobs/components/JobDescription";
 import JobDetailSkeleton from "@view/jobs/components/JobDetailSkeleton";
@@ -36,7 +37,7 @@ const JobDetail = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Goes back in history, or to the job list when the job page was the first page opened (a new tab or a share).
+  // Goes back in history, or to the job list when opened directly.
   const openedDirectly = useRef(location.key === "default");
   const goBackToJobs = () => (openedDirectly.current ? navigate("/jobs") : navigate(-1));
   const dispatch = useAppDispatch();
@@ -52,7 +53,7 @@ const JobDetail = () => {
   const [error, setError] = useState(false);
   const [missing, setMissing] = useState(false);
 
-  // Replaces the address with the job's readable one, without the mark that let a new tab or a share open it.
+  // Replaces the address with the readable job path.
   useEffect(() => {
     if (!detail) return;
     const path = jobPath(detail);
@@ -61,8 +62,7 @@ const JobDetail = () => {
     }
   }, [detail, location.pathname, location.search, location.hash, navigate]);
 
-  // A link ending in #Apply-Now opens straight at the form. The short delay lets the shell's
-  // scroll-to-top on navigation happen first.
+  // Opens at the form for a #Apply-Now link.
   useEffect(() => {
     if (!detail || window.location.hash !== "#Apply-Now") return;
     const timer = setTimeout(() => document.getElementById("Apply-Now")?.scrollIntoView(), 100);
@@ -88,7 +88,7 @@ const JobDetail = () => {
 
   if (loading) return <JobDetailSkeleton />;
 
-  // The job does not exist: the backend said so, or the load failed and the job is not in the loaded job list.
+  // The job does not exist or could not be loaded.
   const notAvailable = missing || (error && jobsState === State.success && !jobs.some((job) => job.id === id));
 
   if (error || !detail) {
@@ -114,24 +114,24 @@ const JobDetail = () => {
   const isSaved = savedJobIds.includes(detail.id);
 
   const scrollToApplyForm = () => {
-    // Updates the address bar without adding a history entry, so the back button still returns to the list.
+    // Updates the address without adding a history entry.
     window.history.replaceState(window.history.state, "", `${location.pathname}${location.search}#Apply-Now`);
     document.getElementById("Apply-Now")?.scrollIntoView({ behavior: "smooth" });
   };
 
   return (
-    <Box>
+    <Box sx={{ bgcolor: "background.glass" }}>
       <JobHero
         detail={detail}
         isSignedIn={isSignedIn}
         isSaved={isSaved}
         onBack={goBackToJobs}
         onApplyNow={scrollToApplyForm}
-        onToggleSave={() => dispatch(toggleSaveJob(detail.id))}
+        onToggleSave={() => dispatch(toggleSavedJob(detail.id))}
         onSeeAllRoles={() => navigate("/jobs")}
       />
 
-      <Box sx={{ maxWidth: PAGE_MAX_WIDTH, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 5, md: 7 } }}>
+      <Box sx={{ mx: PAGE_MARGIN_X, px: PAGE_PADDING_X, py: { xs: 5, md: 7 } }}>
         <JobDescription
           mainContent={detail.mainContent}
           taskInformation={detail.taskInformation}

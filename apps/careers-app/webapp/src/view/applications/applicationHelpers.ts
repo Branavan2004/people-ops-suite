@@ -17,6 +17,7 @@
 import { MapPin, Phone, Video } from "lucide-react";
 
 import type { Application, ApplicationInterview } from "@/types/types";
+import { BRAND_ORANGE, ON_ORANGE } from "@config/brand";
 import { ApplicationStatus } from "@config/constant";
 
 // The stages shown in the tracker.
@@ -31,13 +32,13 @@ const STAGE_INDEX: Partial<Record<ApplicationStatus, number>> = {
   [ApplicationStatus.OfferDeclined]: 3,
 };
 
-// Reads a date, or null when it cannot be read. A date without a time is read as a local day, not midnight UTC.
+// Parses a date, or null when invalid; a date without a time is a local day.
 const parseDate = (value: string): Date | null => {
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (dateOnly) {
     const [year, month, day] = dateOnly.slice(1).map(Number);
     const date = new Date(year, month - 1, day);
-    // A day that does not exist (2026-02-30) would roll over into the next month, so it is rejected.
+    // Rejects a day that does not exist.
     const exists = date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
     return exists ? date : null;
   }
@@ -60,12 +61,58 @@ export function trackerOf(application: Application): { activeStep: number; error
   return { activeStep: STAGE_INDEX[application.status] ?? 0, errorStep: null };
 }
 
+// One line of an application's history.
+export interface HistoryEntry {
+  label: string;
+  date: string | null;
+  // Whether the date carries a time of day.
+  withTime?: boolean;
+  detail?: string;
+}
+
+// Statuses that end the journey or answer the offer.
+const FINAL_STATUSES = [
+  ApplicationStatus.Offer,
+  ApplicationStatus.OfferAccepted,
+  ApplicationStatus.OfferDeclined,
+  ApplicationStatus.Rejected,
+];
+
+// The application's history: applied, screened, each interview and the final status.
+export function historyOf(application: Application, interviews: ApplicationInterview[]): HistoryEntry[] {
+  const entries: HistoryEntry[] = [{ label: ApplicationStatus.Applied, date: application.appliedDate }];
+  const { status } = application;
+  if ((STAGE_INDEX[status] ?? 0) >= STAGE_INDEX[ApplicationStatus.Screening]!) {
+    const screeningIsCurrent = status === ApplicationStatus.Screening;
+    const screeningDated = screeningIsCurrent || status === ApplicationStatus.Interview;
+    entries.push({
+      label: ApplicationStatus.Screening,
+      date: screeningDated ? (application.updatedDate ?? null) : null,
+      detail: screeningIsCurrent ? "Current" : "Passed",
+    });
+  }
+  [...interviews]
+    .sort((a, b) => a.dateTime.localeCompare(b.dateTime))
+    .forEach((interview) =>
+      entries.push({
+        label: interview.round,
+        date: interview.dateTime || null,
+        withTime: true,
+        detail: `Interview · ${interview.status}`,
+      }),
+    );
+  if (FINAL_STATUSES.includes(status)) {
+    entries.push({ label: status, date: application.updatedDate ?? null, detail: "Current" });
+  }
+  return entries;
+}
+
 // Whether an offer is waiting for the candidate's answer.
 export const isOffer = (application: Application) => application.status === ApplicationStatus.Offer;
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 
-// The deadline to answer an offer, with the days left (0 on the last day, below 0 once it has passed).
+// The offer deadline with the days left.
 export function offerDeadlineOf(application: Application): { date: string; daysLeft: number } | null {
   const end = application.offerExpiresOn ? parseDate(application.offerExpiresOn) : null;
   if (!end) return null;
@@ -101,6 +148,15 @@ export const tabOf = (application: Application): ApplicationTab => {
   }
 };
 
+// The tab to open the list on: offers, then interviews, then rejections.
+export function defaultTabOf(applications: Application[]): ApplicationFilter {
+  if (applications.length === 0) return "all";
+  if (applications.some((a) => tabOf(a) === "offers")) return "offers";
+  if (applications.some((a) => a.status === ApplicationStatus.Interview)) return "active";
+  if (applications.some((a) => a.status === ApplicationStatus.Rejected)) return "closed";
+  return tabOf(applications[0]);
+}
+
 // How long ago a date was, in words.
 export const timeAgo = (value: string) => {
   const date = parseDate(value);
@@ -115,15 +171,21 @@ export const timeAgo = (value: string) => {
   return `${Math.floor(days / 30)} months ago`;
 };
 
-// The one-line summary of what happens next.
-export function nextStepOf(application: Application): string {
+// The upcoming interview of an application at the interview stage.
+export const upcomingInterviewOf = (application: Application, interviews: ApplicationInterview[]) =>
+  application.status === ApplicationStatus.Interview
+    ? interviews.find((interview) => interview.status === "Upcoming")
+    : undefined;
+
+// The one-line next step of an application.
+export function nextStepOf(application: Application, interviews: ApplicationInterview[]): string {
   switch (application.status) {
     case ApplicationStatus.Applied:
       return "Waiting for the hiring team to review your application";
     case ApplicationStatus.Screening:
       return "Your profile is being reviewed";
     case ApplicationStatus.Interview: {
-      const upcoming = (application.interviews ?? []).find((interview) => interview.status === "Upcoming");
+      const upcoming = upcomingInterviewOf(application, interviews);
       return upcoming
         ? `Next: ${upcoming.round} · ${formatDateTime(upcoming.dateTime)}`
         : "Waiting for the interview outcome";
@@ -142,7 +204,8 @@ export function nextStepOf(application: Application): string {
 }
 
 export const interviewChip: Record<ApplicationInterview["status"], { color: string; bg: string }> = {
-  Upcoming: { color: "primary.main", bg: "#ff670015" },
+  // Solid orange for an upcoming interview.
+  Upcoming: { color: ON_ORANGE, bg: BRAND_ORANGE },
   Completed: { color: "#059669", bg: "rgba(5,150,105,0.14)" },
   Cancelled: { color: "#6B7280", bg: "rgba(107,114,128,0.16)" },
 };

@@ -15,17 +15,18 @@
 // under the License.
 
 import ballerina/crypto;
-import ballerina/http;
 import ballerina/lang.array;
 import ballerina/time;
 
-# How many applications one address, and one email, may make within the window.
-configurable int applyMaxPerWindow = 5;
+# How many requests one signed-in user may make within the signed-in window.
+public configurable int signedInMaxPerUser = 60;
 
-# The length of the window, in seconds.
-configurable int applyWindowSeconds = 3600;
+# The length of the signed-in window, in seconds.
+public configurable int signedInWindowSeconds = 60;
 
-const int MAX_TRACKED_KEYS = 10000;
+const MAX_TRACKED_KEYS = 10000;
+
+const SWEEP_INTERVAL_SECONDS = 60;
 
 isolated function recentAttempts(int[] attempts, int windowStart) returns int[] {
     int[] recent = [];
@@ -37,40 +38,31 @@ isolated function recentAttempts(int[] attempts, int windowStart) returns int[] 
     return recent;
 }
 
-# The key an address or email is counted under. It is hashed, so no personal data is held in memory.
+# The key a subject is counted under. It is hashed, so no personal data is held in memory.
 public isolated function limiterKey(string kind, string value) returns string {
     byte[] digest = crypto:hashSha256(value.toBytes());
     return kind + ":" + array:toBase16(digest);
 }
 
-# The caller's address: the last X-Forwarded-For hop, which the proxy appended and the caller cannot set,
-# or the connection's own address when the header is missing.
-public isolated function clientAddress(http:Request req, string remoteHost) returns string {
-    string|http:HeaderNotFoundError forwarded = req.getHeader("X-Forwarded-For");
-    if forwarded is string {
-        int? comma = forwarded.lastIndexOf(",");
-        string hop = (comma is int ? forwarded.substring(comma + 1) : forwarded).trim();
-        if hop != "" {
-            return hop;
-        }
-    }
-    return remoteHost;
-}
-
-# Sliding-window limiter, so one caller cannot flood the ATS with candidates.
-public isolated class ApplyRateLimiter {
+# Sliding-window limiter for the requests of signed-in users.
+public isolated class UserRateLimiter {
     private map<int[]> attempts = {};
+    private int lastSweep = 0;
 
-    # Records an attempt for the key; false when the key has used its allowance within the window.
-    public isolated function tryAcquire(string key) returns boolean {
+    # Records a request from the signed-in user; false when they have used their allowance within the signed-in window.
+    public isolated function tryAcquireUser(string subject) returns boolean =>
+        self.tryAcquire(limiterKey("sub", subject), signedInMaxPerUser, signedInWindowSeconds);
+
+    isolated function tryAcquire(string key, int maxAttempts, int windowSeconds) returns boolean {
         int now = time:utcNow()[0];
-        int windowStart = now - applyWindowSeconds;
+        int windowStart = now - windowSeconds;
         lock {
-            if self.attempts.length() > MAX_TRACKED_KEYS {
+            if self.attempts.length() > MAX_TRACKED_KEYS && now - self.lastSweep >= SWEEP_INTERVAL_SECONDS {
+                self.lastSweep = now;
                 self.sweep(windowStart);
             }
             int[] recent = recentAttempts(self.attempts[key] ?: [], windowStart);
-            if recent.length() >= applyMaxPerWindow {
+            if recent.length() >= maxAttempts {
                 self.attempts[key] = recent;
                 return false;
             }

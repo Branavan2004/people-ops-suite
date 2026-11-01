@@ -16,16 +16,16 @@
 
 import { Box, Grid, Skeleton, type Theme } from "@mui/material";
 
-import { PAGE_MAX_WIDTH, heroColorsOf } from "@config/brand";
+import { PAGE_MARGIN_X, PAGE_PADDING_X, heroColorsOf } from "@config/brand";
 
-// The skeleton uses the hero's colours, so it matches the page it stands in for in both theme modes.
+// Skeleton of the job page, in the hero's colours.
 const heroBackground = (theme: Theme) => heroColorsOf(theme.palette.mode).background;
 const skeletonFill = (theme: Theme) => heroColorsOf(theme.palette.mode).skeleton;
 
 const JobDetailSkeleton = () => (
   <Box>
     <Box sx={{ backgroundColor: heroBackground, py: { xs: 5, md: 7 } }}>
-      <Box sx={{ maxWidth: PAGE_MAX_WIDTH, mx: "auto", px: { xs: 2, md: 3 } }}>
+      <Box sx={{ mx: PAGE_MARGIN_X, px: PAGE_PADDING_X }}>
         <Grid container spacing={4} alignItems="center">
           <Grid size={{ xs: 12, md: 7 }}>
             <Skeleton
@@ -48,7 +48,7 @@ const JobDetailSkeleton = () => (
         </Grid>
       </Box>
     </Box>
-    <Box sx={{ maxWidth: PAGE_MAX_WIDTH, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 5, md: 7 } }}>
+    <Box sx={{ mx: PAGE_MARGIN_X, px: PAGE_PADDING_X, py: { xs: 5, md: 7 } }}>
       <Skeleton variant="text" height={24} sx={{ mb: 1 }} />
       <Skeleton variant="text" height={24} sx={{ mb: 1 }} />
       <Skeleton variant="text" height={24} width="80%" />

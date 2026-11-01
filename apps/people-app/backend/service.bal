@@ -338,6 +338,36 @@ service http:InterceptableService / on new http:Listener(9090) {
         return employeeInfo;
     }
 
+    # Fetch how a member of the caller's team is linked to them.
+    #
+    # + employeeId - Employee ID of the team member
+    # + return - Reporting line, or Forbidden when the employee is not in the caller's chain
+    resource function get employees/[string employeeId]/reporting\-line(http:RequestContext ctx)
+        returns database:ReportingLine|http:InternalServerError|http:Forbidden {
+
+        authorization:CustomJwtPayload|error userInfo = ctx.getWithType(authorization:HEADER_USER_INFO);
+        if userInfo is error {
+            return <http:InternalServerError>{
+                body: {
+                    message: ERROR_USER_INFORMATION_HEADER_NOT_FOUND
+                }
+            };
+        }
+
+        database:ReportingLine|error? reportingLine = database:getReportingLine(userInfo.email, employeeId);
+        if reportingLine is error {
+            string customErr = string `Error occurred while fetching the reporting line for ID: ${employeeId}`;
+            log:printError(customErr, reportingLine, employeeId = employeeId);
+            return <http:InternalServerError>{body: {message: customErr}};
+        }
+        if reportingLine is () {
+            log:printWarn("Employee is not in the caller's team", invokerEmail = userInfo.email,
+                    employeeId = employeeId);
+            return <http:Forbidden>{body: {message: "This employee is not in your team"}};
+        }
+        return reportingLine;
+    }
+
     # Fetch employee personal information.
     #
     # + employeeId - Employee ID
@@ -1431,8 +1461,19 @@ service http:InterceptableService / on new http:Listener(9090) {
         string workEmail = requestedEmail ?: database:FUTURE_JOINER_EMAIL;
         payload.workEmail = workEmail;
         // Set here rather than taken from the request: whether someone has started is decided
-        // by their start date, and the scheduler moves a New joiner to Active on it.
-        payload.employeeStatus = database:initialEmployeeStatus(payload.startDate, todayUtc());
+        // by their start date where they work, and the scheduler moves a New joiner to Active
+        // once that date begins there.
+        string|error today = todayAt(payload.companyId, payload.workLocation);
+        if today is error {
+            log:printError("Error occurred while reading the work location's timezone", today,
+                    companyId = payload.companyId, workLocation = payload.workLocation);
+            return <http:InternalServerError>{
+                body: {
+                    message: ERROR_EMPLOYEE_CREATION_FAILED
+                }
+            };
+        }
+        payload.employeeStatus = database:initialEmployeeStatus(payload.startDate, today);
 
         string|http:BadRequest|http:InternalServerError generatedEmployeeId = generateEmployeeId(payload);
         if generatedEmployeeId is http:BadRequest|http:InternalServerError {
@@ -3732,17 +3773,6 @@ service http:InterceptableService / on new http:Listener(9090) {
             };
         }
 
-        // Today is refused along with the past: the sweep runs once a day, so a change
-        // dated today lands either immediately or a day late depending on whether it has
-        // already run. An edit meant to take effect now should be applied now.
-        if !isFutureDate(payload.effectiveDate) {
-            log:printWarn("Scheduled change rejected: effective date is not in the future",
-                    employeeId = employeeId, effectiveDate = payload.effectiveDate);
-            return <http:BadRequest>{
-                body: {message: "The effective date must be a future date"}
-            };
-        }
-
         database:Employee|error? employeeInfo = database:getEmployeeInfo(employeeId);
         if employeeInfo is error {
             string customErr = string `Error occurred while fetching employee information for ID: ${employeeId}`;
@@ -3753,6 +3783,23 @@ service http:InterceptableService / on new http:Listener(9090) {
             string customErr = "Employee information not found";
             log:printWarn(customErr, employeeId = employeeId);
             return <http:NotFound>{body: {message: customErr}};
+        }
+
+        // Judged against today where the employee works, the day the sweep will act on.
+        // Today is refused along with the past: the sweep would apply it at its next run,
+        // and an edit meant to take effect now should be applied now.
+        string|error today = todayAt(employeeInfo.companyId, employeeInfo.workLocation);
+        if today is error {
+            string customErr = string `Error occurred while reading the work location's timezone for ID: ${employeeId}`;
+            log:printError(customErr, today, employeeId = employeeId);
+            return <http:InternalServerError>{body: {message: customErr}};
+        }
+        if !isFutureDate(payload.effectiveDate, today) {
+            log:printWarn("Scheduled change rejected: effective date is not in the future",
+                    employeeId = employeeId, effectiveDate = payload.effectiveDate, today = today);
+            return <http:BadRequest>{
+                body: {message: "The effective date must be a future date"}
+            };
         }
 
         // Refused while somebody is present to be told. A field the sweep cannot write

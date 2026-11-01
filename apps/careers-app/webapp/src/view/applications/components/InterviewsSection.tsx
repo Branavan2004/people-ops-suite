@@ -14,10 +14,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Button, Chip, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Link, Stack, Typography } from "@mui/material";
 import { ExternalLink } from "lucide-react";
 
 import type { ApplicationInterview } from "@/types/types";
+import { BRAND_TINT } from "@config/brand";
 import { formatDateTime, interviewChip, interviewIcon } from "@view/applications/applicationHelpers";
 import SectionTitle from "@view/applications/components/SectionTitle";
 
@@ -48,7 +49,16 @@ const InterviewsSection = ({ interviews }: InterviewsSectionProps) => {
                 p: 2,
                 borderRadius: "10px",
                 border: "1px solid",
-                borderColor: "divider",
+                borderColor: "primary.main",
+                transition: "border-color 0.15s, background-color 0.15s, box-shadow 0.15s, transform 0.15s",
+                // Lift and orange tint on hover for a box with a meeting link.
+                ...(isLink && {
+                  "&:hover": {
+                    backgroundColor: BRAND_TINT.faint,
+                    boxShadow: "0 8px 20px -10px rgb(255 103 0 / 45%)",
+                    transform: "translateY(-2px)",
+                  },
+                }),
               }}
             >
               <Stack direction="row" gap={1.5} alignItems="center">
@@ -61,8 +71,19 @@ const InterviewsSection = ({ interviews }: InterviewsSectionProps) => {
                   </Typography>
                   <Typography fontSize="0.85rem" color="text.secondary">
                     {formatDateTime(interview.dateTime)} · {interview.mode}
-                    {!isLink && ` · ${interview.location}`}
+                    {!isLink && interview.location && ` · ${interview.location}`}
                   </Typography>
+                  {isLink && interview.status !== "Upcoming" && (
+                    <Link
+                      href={interview.location}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      fontSize="0.8rem"
+                      sx={{ wordBreak: "break-all" }}
+                    >
+                      Meeting link
+                    </Link>
+                  )}
                 </Box>
               </Stack>
               <Stack direction="row" alignItems="center" gap={1}>
@@ -72,9 +93,14 @@ const InterviewsSection = ({ interviews }: InterviewsSectionProps) => {
                     component="a"
                     href={interview.location}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     endIcon={<ExternalLink size={13} />}
-                    sx={{ fontWeight: 600 }}
+                    sx={{
+                      fontWeight: 600,
+                      // A clear border keeps the button size on hover.
+                      border: "1px solid transparent",
+                      "&:hover": { borderColor: "primary.main", backgroundColor: BRAND_TINT.soft },
+                    }}
                   >
                     Join meeting
                   </Button>
