@@ -14,9 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { isCurrentStatus, isEndedStatus } from "./statusHelpers";
-
-export type InternRow = Record<string, any>;
+import dayjs from "dayjs";
 
 /**
  * Resilient to the mixed date formats found in the source data (YYYY-MM-DD,
@@ -28,9 +26,12 @@ export const parseDate = (dateStr: unknown): Date | null => {
 
   const str = String(dateStr).trim();
 
+  // new Date("YYYY-MM-DD") is UTC midnight, which lands on the previous day
+  // or at a non-midnight hour in most timezones; dayjs reads it as local
+  // midnight, matching every other Date this dashboard compares against.
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    const d = new Date(str);
-    return isNaN(d.getTime()) ? null : d;
+    const d = dayjs(str);
+    return d.isValid() ? d.toDate() : null;
   }
 
   if (/^\d{1,2}-[A-Za-z]{3}-\d{4}$/.test(str)) {
@@ -81,21 +82,11 @@ export const parseDate = (dateStr: unknown): Date | null => {
   return isNaN(fallback.getTime()) ? null : fallback;
 };
 
-export const formatDate = (date: unknown): string => {
-  const parsed = parseDate(date);
-  if (!parsed) return "";
-  return parsed.toISOString().split("T")[0];
-};
-
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-// Tiny stand-in for date-fns's `format()`, covering only the handful of
-// tokens this app's dashboard actually uses (yyyy, yy, MMMM, MMM, MM, dd, d).
-// date-fns v4's shipped .d.ts files use TS 5-only `.ts`-extension relative
-// imports internally, which people-app's TS 4.9 + moduleResolution:"node"
-// setup can't resolve - rather than touching that project-wide config, this
-// avoids depending on date-fns's types at all.
+// Tiny stand-in for a date `format()`, covering only the handful of tokens
+// this dashboard uses (yyyy, yy, MMMM, MMM, MM, dd, d).
 export const formatDateToken = (date: Date, pattern: string): string => {
   const yyyy = String(date.getFullYear());
   const yy = yyyy.slice(-2);
@@ -107,6 +98,10 @@ export const formatDateToken = (date: Date, pattern: string): string => {
   const tokens: Record<string, string> = { yyyy, yy, MMMM, MMM, MM, dd, d };
   return pattern.replace(/yyyy|yy|MMMM|MMM|MM|dd|d/g, (match) => tokens[match]);
 };
+
+// Midnight at the start of the given day, for comparing against the
+// date-only values parseDate returns.
+export const startOfDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
 export const isDateToday = (date: Date): boolean => {
   const today = new Date();
@@ -149,97 +144,4 @@ export const getLastDayOfMonth = (targetDate: unknown): Date | null => {
   const d = parseDate(targetDate);
   if (!d) return null;
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
-};
-
-// Returns relative time like "just now", "5 mins ago", "2 hrs ago"
-export const getRelativeTimeString = (date: unknown): string => {
-  if (!date) return "";
-  const d = typeof date === "string" ? parseDate(date) : (date as Date);
-  if (!d) return "";
-  const diff = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)} mins ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hrs ago`;
-  return d.toLocaleDateString("en-US");
-};
-
-export const getPreviousMonthInterns = (interns: InternRow[] = [], selectedDate: unknown): InternRow[] => {
-  const sd = parseDate(selectedDate);
-  if (!sd) return [];
-  let targetMonth = sd.getMonth() - 1;
-  let targetYear = sd.getFullYear();
-  if (targetMonth < 0) {
-    targetMonth = 11;
-    targetYear -= 1;
-  }
-  return interns.filter((i) => {
-    const jd = parseDate(i["Joined Date"]);
-    if (!jd) return false;
-    return jd.getMonth() === targetMonth && jd.getFullYear() === targetYear;
-  });
-};
-
-export const getNewJoiners = (interns: InternRow[] = [], selectedDate: unknown): InternRow[] => {
-  const sd = parseDate(selectedDate);
-  if (!sd) return [];
-  return interns.filter((i) => {
-    const jd = parseDate(i["Joined Date"]);
-    if (!jd) return false;
-    return jd.getMonth() === sd.getMonth() && jd.getFullYear() === sd.getFullYear();
-  });
-};
-
-export const getAccumulatedInterns = (interns: InternRow[] = [], selectedDate: unknown): InternRow[] => {
-  const sd = parseDate(selectedDate);
-  if (!sd) return [];
-  return interns.filter((i) => {
-    const jd = parseDate(i["Joined Date"]);
-    const ed = parseDate(i["End Date"]);
-    if (!jd || !ed) return false;
-    return jd <= sd && ed >= sd;
-  });
-};
-
-export const getResignations = (interns: InternRow[] = [], selectedDate: unknown): InternRow[] => {
-  const sd = parseDate(selectedDate);
-  if (!sd) return [];
-  return interns.filter((i) => {
-    if (!isEndedStatus(i["Status"])) return false;
-    const ed = parseDate(i["End Date"]);
-    if (!ed) return false;
-    return ed.getMonth() === sd.getMonth() && ed.getFullYear() === sd.getFullYear();
-  });
-};
-
-export const getProceedingNextMonth = (interns: InternRow[] = [], selectedDate: unknown): InternRow[] => {
-  const sd = parseDate(selectedDate);
-  if (!sd) return [];
-  const lastDay = getLastDayOfMonth(sd);
-  return interns.filter((i) => {
-    const ed = parseDate(i["End Date"]);
-    if (!ed || !lastDay) return false;
-    return ed > lastDay;
-  });
-};
-
-export const getTotalActive = (interns: InternRow[] = []): InternRow[] => {
-  return interns.filter((i) => isCurrentStatus(i["Status"]));
-};
-
-/** Returns the progress percentage (0-100) of an internship, given its join/end dates. */
-export const getInternshipProgress = (joinedDateStr: unknown, endDateStr: unknown): number => {
-  const joined = parseDate(joinedDateStr);
-  const end = parseDate(endDateStr);
-  const today = new Date();
-
-  if (!joined || !end) return 0;
-  if (today < joined) return 0;
-  if (today > end) return 100;
-
-  const total = end.getTime() - joined.getTime();
-  const elapsed = today.getTime() - joined.getTime();
-
-  if (total <= 0) return 100;
-  const pct = Math.round((elapsed / total) * 100);
-  return Math.min(Math.max(pct, 0), 100);
 };

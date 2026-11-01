@@ -30,7 +30,6 @@ export const useEmployeeHub = () => {
 
   return {
     interns: state.interns,
-    inProgressInterns: state.inProgressInterns,
     loading: state.state === State.loading || state.state === State.idle,
     errorMessage: state.errorMessage,
     refetch: () => dispatch(fetchInternHubData({ force: true })),
@@ -38,11 +37,10 @@ export const useEmployeeHub = () => {
     // from /employee-hub/employees - kept separate from people-app's `employee` slice.
     employees: state.employees,
     leavers: state.leavers,
-    jobBandRows: state.jobBandRows,
     employeesLoading: state.employeesState === State.loading || state.employeesState === State.idle,
     employeesErrorMessage: state.employeesErrorMessage,
     // True once the /employee-hub/employees fetch has succeeded. False means
-    // the employee list is empty because the fetch hasn't finished or failed.
+    // the fetch hasn't finished, or the latest one failed.
     employeesIsLive: state.employeesIsLive,
     refetchEmployees: () => dispatch(fetchEmployeeHubData({ force: true })),
   };

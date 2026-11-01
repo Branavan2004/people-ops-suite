@@ -14,8 +14,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { parseDate } from "./dateHelpers";
-
 export type NormalizedInternStatus = "active" | "ended" | "not_started" | "unknown";
 
 export function normalizeStatus(rawStatus: unknown): NormalizedInternStatus {
@@ -43,69 +41,6 @@ export function getStatusDisplay(rawStatus: unknown): { label: string; colorKey:
   return { label: rawStatus ? String(rawStatus).trim() : "Unknown", colorKey: "unknown" };
 }
 
-export function isCurrentStatus(rawStatus: unknown): boolean {
-  return normalizeStatus(rawStatus) === "active";
-}
-
 export function isEndedStatus(rawStatus: unknown): boolean {
   return normalizeStatus(rawStatus) === "ended";
 }
-
-export function deriveInternStatus({
-  status,
-  joinedDate,
-  endDate,
-  assumeInProgress = false,
-}: {
-  status?: unknown;
-  joinedDate?: string | Date | null;
-  endDate?: string | Date | null;
-  assumeInProgress?: boolean;
-} = {}): string {
-  const raw = String(status || "").trim();
-  if (raw) {
-    const lower = raw.toLowerCase();
-    if (lower === "in progress" || lower === "active") return "In Progress";
-    if (lower === "ended" || lower === "completed") return "Ended";
-    if (lower === "not started") return "Not Started";
-    if (lower === "extended") return "Extended";
-    if (lower === "resigned") return "Resigned";
-    if (lower === "terminated") return "Terminated";
-    return raw;
-  }
-
-  if (assumeInProgress) return "In Progress";
-
-  const joined = joinedDate instanceof Date ? joinedDate : parseDate(joinedDate);
-  const end = endDate instanceof Date ? endDate : parseDate(endDate);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  if (joined && joined > today) return "Not Started";
-  if (end && end < today) return "Ended";
-  if (joined) return "In Progress";
-  return "Ended";
-}
-
-export function statusMatchesFilter(rawStatus: unknown, filterValue: string): boolean {
-  if (!filterValue || filterValue === "All") return true;
-
-  const filter = String(filterValue).toLowerCase();
-  const raw = String(rawStatus || "").trim().toLowerCase();
-
-  if (filter === "in progress") return normalizeStatus(rawStatus) === "active" && raw !== "extended";
-  if (filter === "extended") return raw === "extended";
-  if (filter === "ended") return normalizeStatus(rawStatus) === "ended";
-  if (filter === "not started") return normalizeStatus(rawStatus) === "not_started";
-  if (filter === "resigned") return raw === "resigned";
-  if (filter === "terminated") return raw === "terminated";
-
-  return raw === filter;
-}
-
-export const STATUS_FILTER_OPTIONS = [
-  "All",
-  "In Progress",
-  "Ended",
-  "Not Started",
-];

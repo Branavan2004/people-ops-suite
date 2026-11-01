@@ -14,25 +14,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-export function formatNameFromEmail(email: string | undefined | null): string {
-  const trimmed = (email || "").trim();
-  if (!trimmed) return "—";
-  const local = trimmed.split("@")[0];
+function formatNameFromEmail(email: string): string {
+  const local = email.split("@")[0];
   return local.replace(/[._]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Lower-cased, trimmed email, the key of the lookup built by buildEmailLookup.
+export const emailKey = (email: string | null | undefined): string => (email || "").trim().toLowerCase();
+
+// Built once per employee list, so resolving a name is a map lookup rather
+// than a scan of every employee.
+export function buildEmailLookup<T extends { email: string }>(employees: T[]): Map<string, T> {
+  const lookup = new Map<string, T>();
+  employees.forEach((e) => {
+    const key = emailKey(e.email);
+    if (key && !lookup.has(key)) lookup.set(key, e);
+  });
+  return lookup;
 }
 
 // Reporting Manager / Mentor fields in the source data only ever store an
 // email address, never a display name. This resolves the actual person's
-// name by matching that email against the employee list loaded from the
-// backend, falling back to a formatted guess from the email's local-part if no
-// match is found.
+// name from the employee lookup, falling back to a formatted guess from the
+// email's local-part if no match is found.
 export function resolveNameByEmail(
-  email: string | undefined | null,
-  employees: { email?: string; name?: string }[]
+  email: string | null | undefined,
+  lookup: Map<string, { name: string }>
 ): string {
-  const trimmed = (email || "").trim();
-  if (!trimmed) return "—";
-  const match = employees.find((e) => (e.email || "").trim().toLowerCase() === trimmed.toLowerCase());
-  if (match?.name) return match.name;
-  return formatNameFromEmail(trimmed);
+  const key = emailKey(email);
+  if (!key) return "—";
+  return lookup.get(key)?.name || formatNameFromEmail(key);
 }

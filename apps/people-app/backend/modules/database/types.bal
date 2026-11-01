@@ -285,8 +285,6 @@ public type Employee record {|
     string? finalDayOfEmployment;
     # Resignation reason
     string? resignationReason;
-    # University attended - only set for employees who have an `internship` row
-    string? university;
     # Employment type
     string employmentType;
     # Employment type ID
@@ -1312,7 +1310,7 @@ public type UpdateResignationPayload record {|
 
 # [Database] Intern profile record - sourced from `employee` (joined with
 # `personal_info`/`business_unit`/`team`/`sub_team`), plus university
-# from `internship` - see people_app_table_update_v1.2.2.sql.
+# from `internship` - see people_app_table_update_v1.4.1.sql.
 public type InternProfile record {|
     # Employee primary key (employee.id)
     int id;
@@ -1389,24 +1387,12 @@ public type EmployeeHubEmployee record {|
     string? finalDayOfEmployment;
 |};
 
-# [Database] Headcount per team and job band for the Employee Hub dashboard.
-public type EmployeeHubJobBandCount record {|
-    # Team
-    string team;
-    # Job band
-    int? jobBand;
-    # Number of employees
-    int headcount;
-|};
-
 # Employee Hub dashboard data.
 public type EmployeeHubData record {|
     # Current staff (Active or Marked leaver, already started)
     EmployeeHubEmployee[] employees;
     # Non-intern leavers
     EmployeeHubEmployee[] leavers;
-    # Headcount per team and job band for current, non-intern staff
-    EmployeeHubJobBandCount[] jobBandCounts;
 |};
 
 # [Database] Insert type for vehicle.

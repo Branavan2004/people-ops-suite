@@ -21,28 +21,75 @@ import { RootState } from "@slices/store";
 import { enqueueSnackbarMessage } from "@slices/commonSlice/common";
 import { loadInternHubDataFromApi } from "@utils/employeeHub/internApiData";
 import { loadEmployeeHubDataFromApi } from "@utils/employeeHub/employeeApiData";
-import type { EmployeeRow, JobBandRow } from "@utils/employeeHub/employeeApiData";
-import type { InternRow } from "@utils/employeeHub/dateHelpers";
+
+// Internship status, derived from the intern's employment type, status and dates
+// (see statusFor in internApiData.ts).
+export type InternStatus = "In Progress" | "Ended" | "Not Started";
+
+// One row per person returned by GET /intern-profiles.
+export interface InternRow {
+  // employee.id
+  id: string;
+  employeeId: string;
+  name: string;
+  email: string;
+  gender: string;
+  mentorEmail: string;
+  bu: string;
+  team: string;
+  subTeam: string;
+  university: string;
+  // Kept as the API's YYYY-MM-DD strings, not Date objects - Redux state must
+  // stay serializable. Null once the person has moved on to another
+  // employment type, since that row's dates belong to the new role.
+  joinedDate: string | null;
+  endDate: string | null;
+  status: InternStatus;
+}
+
+// One row per non-intern employee returned by GET /employee-hub/employees.
+export interface EmployeeRow {
+  employeeId: string;
+  name: string;
+  email: string;
+  gender: string;
+  designation: string;
+  team: string;
+  bu: string;
+  reportingManager: string;
+  joinDate: string | null;
+  employmentType: string;
+  // designation.job_band - null when the designation has no band set.
+  jobBand: number | null;
+  // Real employee_status: "Active", "Marked leaver" or "Left".
+  status: string;
+  location: string;
+  // From the `resignation` table - null for anyone who hasn't resigned.
+  resignationDate: string | null;
+  finalDayOfEmployment: string | null;
+  probationEndDate: string | null;
+}
+
+export interface InternHubData {
+  interns: InternRow[];
+}
+
+export interface EmployeeHubData {
+  employees: EmployeeRow[];
+  // Non-intern employees with status "Left" - the source for departure
+  // counts and the historical headcount trend.
+  leavers: EmployeeRow[];
+}
 
 export interface EmployeeHubState {
+  // Every intern, whatever their status.
   interns: InternRow[];
-  inProgressInterns: InternRow[];
-  // The two raw sources behind `inProgressInterns` (see mergeInProgressInterns
-  // below), kept separately so either fetch can resolve independently, in
-  // either order, without clobbering the other one's contribution.
-  internProfileInProgress: InternRow[];
-  liveOnlyInProgress: InternRow[];
   state: State;
   errorMessage: string | null;
   // Populated from GET /employee-hub/employees for the Dashboard's
   // "Permanent Employees" tab - not people-app's real `employee` slice.
-  // Empty until that fetch succeeds.
   employees: EmployeeRow[];
-  // Non-intern employees with status "Left" (see employeeApiData.ts).
   leavers: EmployeeRow[];
-  // Team + job band per current non-intern employee, from the backend's
-  // per-team counts - feeds the job band charts.
-  jobBandRows: JobBandRow[];
   employeesState: State;
   employeesErrorMessage: string | null;
   // True once the employee fetch has succeeded, so the UI can explain an
@@ -52,50 +99,28 @@ export interface EmployeeHubState {
 
 const initialState: EmployeeHubState = {
   interns: [],
-  inProgressInterns: [],
-  internProfileInProgress: [],
-  liveOnlyInProgress: [],
   state: State.idle,
   errorMessage: null,
   employees: [],
   leavers: [],
-  jobBandRows: [],
   employeesState: State.idle,
   employeesErrorMessage: null,
   employeesIsLive: false,
 };
 
-// `inProgressInterns` is fed by two independent async fetches that resolve
-// in an unpredictable order:
-//  - fetchInternHubData (GET /intern-profiles) - the authoritative source,
-//    with university/mentor/duration data.
-//  - fetchEmployeeHubData (GET /employee-hub/employees) - catches any employee
-//    whose employmentType is "INTERNSHIP"; these rows carry no university.
-// Both results are merged by email, preferring the /intern-profiles row when
-// the same person appears in both, so whichever fetch finishes last doesn't
-// overwrite the other's data.
-function keyForInternRow(row: InternRow): string {
-  const email = String(row.emailId || row["Email ID"] || "").trim().toLowerCase();
-  return email ? `email:${email}` : `id:${row.id}`;
-}
-
-// Only ever *adds* live-only rows whose email isn't already covered by an
-// /intern-profiles row - it never drops or collapses rows within
-// `fromProfiles` itself.
-function mergeInProgressInterns(fromProfiles: InternRow[], fromLiveEmployees: InternRow[]): InternRow[] {
-  const profileKeys = new Set(fromProfiles.map(keyForInternRow));
-  const liveOnlyExtras = fromLiveEmployees.filter((row) => !profileKeys.has(keyForInternRow(row)));
-  return [...fromProfiles, ...liveOnlyExtras];
-}
-
-// Fetches the intern roster from the real backend's GET /intern-profiles
-// endpoint (backed by the `internship` table) - see internApiData.ts.
-// Both fetches page through the whole roster, so they run once and the result
-// is kept in the store: switching between the Permanent and Interns pages (or
-// coming back from a profile) remounts the dashboard, and without this check
-// every remount re-downloaded everything. `force` (the Refresh button) skips
-// the cache; nothing ever starts a second copy while one is already running.
+// Both fetches load the whole roster, so they run once and the result is kept
+// in the store: switching between the Permanent and Interns pages (or coming
+// back from a profile) remounts the dashboard, and without this check every
+// remount re-downloaded everything. `force` (the Refresh button) skips the
+// cache; nothing ever starts a second copy while one is already running.
 type HubFetchArg = { force?: boolean } | void;
+
+const hubFetchCondition = (key: "state" | "employeesState") =>
+  (arg: HubFetchArg, { getState }: { getState: () => unknown }) => {
+    const current = (getState() as RootState).employeeHub[key];
+    if (current === State.loading) return false;
+    return !!arg?.force || current !== State.success;
+  };
 
 export const fetchInternHubData = createAsyncThunk(
   "employeeHub/fetchAll",
@@ -119,28 +144,34 @@ export const fetchInternHubData = createAsyncThunk(
       return rejectWithValue(errorMessage);
     }
   },
-  {
-    condition: (arg, { getState }) => {
-      const current = (getState() as RootState).employeeHub.state;
-      if (current === State.loading) return false;
-      return !!arg?.force || current !== State.success;
-    },
-  },
+  { condition: hubFetchCondition("state") },
 );
 
-// Sources both the "Permanent Employees" tab and the live half of the
-// Interns tab's hybrid roster from GET /employee-hub/employees - see
+// Sources the "Permanent Employees" tab from GET /employee-hub/employees - see
 // employeeApiData.ts. Admin-only.
 export const fetchEmployeeHubData = createAsyncThunk(
   "employeeHub/fetchEmployees",
-  async (_: HubFetchArg) => loadEmployeeHubDataFromApi(),
-  {
-    condition: (arg, { getState }) => {
-      const current = (getState() as RootState).employeeHub.employeesState;
-      if (current === State.loading) return false;
-      return !!arg?.force || current !== State.success;
-    },
+  async (_: HubFetchArg, { dispatch, rejectWithValue }) => {
+    try {
+      return await loadEmployeeHubDataFromApi();
+    } catch (error: any) {
+      if (isCancel(error)) return rejectWithValue("cancelled");
+      const errorMessage =
+        error.response?.status === HttpStatusCode.InternalServerError
+          ? "Error fetching employee data"
+          : error.response?.data?.message ||
+            error.message ||
+            "An unknown error occurred while fetching employee data.";
+      dispatch(
+        enqueueSnackbarMessage({
+          message: errorMessage,
+          type: "error",
+        }),
+      );
+      return rejectWithValue(errorMessage);
+    }
   },
+  { condition: hubFetchCondition("employeesState") },
 );
 
 const employeeHubSlice = createSlice({
@@ -156,8 +187,6 @@ const employeeHubSlice = createSlice({
       .addCase(fetchInternHubData.fulfilled, (state, action) => {
         state.state = State.success;
         state.interns = action.payload.interns;
-        state.internProfileInProgress = action.payload.inProgressInterns;
-        state.inProgressInterns = mergeInProgressInterns(state.internProfileInProgress, state.liveOnlyInProgress);
       })
       .addCase(fetchInternHubData.rejected, (state, action) => {
         state.state = State.failed;
@@ -173,14 +202,13 @@ const employeeHubSlice = createSlice({
         state.employeesIsLive = true;
         state.employees = action.payload.employees;
         state.leavers = action.payload.leavers;
-        state.jobBandRows = action.payload.jobBandRows;
-        state.liveOnlyInProgress = action.payload.inProgressInterns;
-        state.inProgressInterns = mergeInProgressInterns(state.internProfileInProgress, state.liveOnlyInProgress);
       })
-      .addCase(fetchEmployeeHubData.rejected, (state) => {
-        // Settles with an empty `employees` list; employeesIsLive stays false,
-        // so the Permanent page shows a "could not be loaded" banner with Retry.
-        state.employeesState = State.success;
+      .addCase(fetchEmployeeHubData.rejected, (state, action) => {
+        // Data from an earlier successful load is no longer current, so it is
+        // marked as not live and the Permanent page shows its Retry banner.
+        state.employeesState = State.failed;
+        state.employeesIsLive = false;
+        state.employeesErrorMessage = (action.payload as string) || "Failed to load employee data";
       });
   },
 });
@@ -189,6 +217,5 @@ export default employeeHubSlice.reducer;
 
 export const selectInternHubState = (state: RootState) => state.employeeHub.state;
 export const selectInterns = (state: RootState) => state.employeeHub.interns;
-export const selectInProgressInterns = (state: RootState) => state.employeeHub.inProgressInterns;
 export const selectEmployeeHubState = (state: RootState) => state.employeeHub.employeesState;
 export const selectEmployeeHub = (state: RootState) => state.employeeHub.employees;

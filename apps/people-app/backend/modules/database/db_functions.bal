@@ -1342,16 +1342,6 @@ public isolated function getEmployeeHubEmployees(boolean leavers) returns Employ
         select e;
 }
 
-# Get headcount per team and job band for current, non-intern staff.
-#
-# + return - Job band counts or error
-public isolated function getEmployeeHubJobBandCounts() returns EmployeeHubJobBandCount[]|error {
-    stream<EmployeeHubJobBandCount, error?> countStream =
-        databaseClient->query(getEmployeeHubJobBandCountsQuery());
-    return from EmployeeHubJobBandCount c in countStream
-        select c;
-}
-
 # Fetch vehicles.
 #
 # + owner - Filter : owner of the vehicles  

@@ -59,7 +59,6 @@ isolated function personalFieldEmployee() returns Employee => {
     probationEndDate: (),
     resignationDate: (),
     resignationReason: (),
-    university: (),
     secondaryJobTitle: (),
     subTeam: (),
     subTeamId: (),

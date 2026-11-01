@@ -202,7 +202,6 @@ isolated function getEmployeeInfoQuery(string employeeId) returns sql:Parameteri
         r.final_day_in_office AS finalDayInOffice,
         r.final_day_of_employment AS finalDayOfEmployment,
         r.reason AS resignationReason,
-        i.university AS university,
         et.name AS employmentType,
         e.employment_type_id AS employmentTypeId,
         d.career_function_id AS careerFunctionId,
@@ -263,7 +262,6 @@ isolated function getEmployeeInfoQuery(string employeeId) returns sql:Parameteri
         LEFT JOIN house h ON e.house_id = h.id
         LEFT JOIN personal_info pi ON pi.id = e.personal_info_id
         LEFT JOIN resignation r ON r.employee_id = e.id
-        LEFT JOIN internship i ON i.employee_id = e.id
     WHERE
         e.employee_id = ${employeeId};`;
 
@@ -312,7 +310,6 @@ isolated function getEmployeesQuery(EmployeeSearchPayload payload, string? leadE
             r.final_day_in_office AS finalDayInOffice,
             r.final_day_of_employment AS finalDayOfEmployment,
             r.reason AS resignationReason,
-            i.university AS university,
             et.name AS employmentType,
             e.employment_type_id AS employmentTypeId,
             d.career_function_id AS careerFunctionId,
@@ -429,7 +426,6 @@ isolated function getEmployeesQuery(EmployeeSearchPayload payload, string? leadE
                 GROUP BY LOWER(work_email)
             ) mgr ON mgr.managerEmail = LOWER(e.manager_email)
             LEFT JOIN resignation r ON r.employee_id = e.id
-            LEFT JOIN internship i ON i.employee_id = e.id
         `;
 
     // Defaults to excluding personal information, so a caller that has not been considered
@@ -2361,6 +2357,10 @@ isolated function getEmployeeHubEmployeesQuery(boolean leavers) returns sql:Para
             AND (r.reason IS NULL OR LOWER(r.reason) NOT LIKE 'continuous service backfill%')`
         : `LOWER(e.employee_status) IN ('active', 'marked leaver')
             AND e.start_date <= CURDATE()`;
+    // A row continued by a newer one (e.g. a relocation) is the same person, so it is
+    // neither a departure nor a second head while the two rows overlap.
+    filter = sql:queryConcat(filter, `
+            AND NOT EXISTS (SELECT 1 FROM employee n WHERE n.continuous_service_record = e.id)`);
 
     return sql:queryConcat(`
         SELECT
@@ -2403,27 +2403,6 @@ isolated function getEmployeeHubEmployeesQuery(boolean leavers) returns sql:Para
         WHERE `, filter, `
         ORDER BY e.employee_id ASC`);
 }
-
-# Get headcount per team and job band for current, non-intern staff, for the
-# Employee Hub's job band charts.
-#
-# + return - Query to get job band counts
-isolated function getEmployeeHubJobBandCountsQuery() returns sql:ParameterizedQuery =>
-    `SELECT
-        t.name AS team,
-        d.job_band AS jobBand,
-        COUNT(*) AS headcount
-    FROM employee e
-        INNER JOIN personal_info pi ON pi.id = e.personal_info_id
-        INNER JOIN employment_type et ON et.id = e.employment_type_id
-        INNER JOIN designation d ON d.id = e.designation_id
-        INNER JOIN company c ON c.id = e.company_id
-        INNER JOIN business_unit bu ON bu.id = e.business_unit_id
-        INNER JOIN team t ON t.id = e.team_id
-    WHERE LOWER(e.employee_status) IN ('active', 'marked leaver')
-        AND e.start_date <= CURDATE()
-        AND UPPER(et.name) <> ${INTERNSHIP}
-    GROUP BY t.name, d.job_band`;
 
 # Add an additional manager for an employee.
 #

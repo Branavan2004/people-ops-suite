@@ -85,9 +85,6 @@ export interface Employee {
   // Comma-joined by the backend's GROUP_CONCAT, matching the existing
   // additionalManagerEmails precedent below — not a real array.
   leadershipGroups: string | null;
-  // From the `internship` table (people_app_table_update_v1.2.2.sql) via a
-  // LEFT JOIN - null for anyone who was never an intern.
-  university: string | null;
 }
 
 export interface EmployeeBasicInfo {

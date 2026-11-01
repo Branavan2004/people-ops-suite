@@ -3870,8 +3870,7 @@ service http:InterceptableService / on new http:Listener(9090) {
         return http:OK;
     }
 
-    # Get Employee Hub dashboard data: current employees, non-intern leavers and
-    # headcount per team and job band.
+    # Get Employee Hub dashboard data: current employees and non-intern leavers.
     #
     # + return - Employee Hub data or error response
     resource function get employee\-hub/employees(http:RequestContext ctx)
@@ -3904,14 +3903,7 @@ service http:InterceptableService / on new http:Listener(9090) {
                 body: {message: "Error occurred while fetching employee data."}
             };
         }
-        database:EmployeeHubJobBandCount[]|error jobBandCounts = database:getEmployeeHubJobBandCounts();
-        if jobBandCounts is error {
-            log:printError("Error fetching Employee Hub job band counts", jobBandCounts);
-            return <http:InternalServerError>{
-                body: {message: "Error occurred while fetching employee data."}
-            };
-        }
-        return {employees, leavers, jobBandCounts};
+        return {employees, leavers};
     }
 
     # List intern profiles.

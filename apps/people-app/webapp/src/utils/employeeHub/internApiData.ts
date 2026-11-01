@@ -15,20 +15,13 @@
 // under the License.
 
 // Sources the Interns tab's full roster from people-app's real backend
-// (GET /intern-profiles). Only university comes from the
-// `internship` table; everything else is the intern's `employee` row.
-// Maps each row into the same InternRow shape (both the original
-// header-style keys, e.g. "Joined Date", and the camelCase ones, e.g.
-// joinedDate) so nothing downstream that consumes InternRow needs to change.
+// (GET /intern-profiles). Only university comes from the `internship` table;
+// everything else is the intern's `employee` row.
 
 import { APIService } from "@utils/apiService";
 import { AppConfig } from "@config/config";
-import { parseDate, type InternRow } from "./dateHelpers";
-
-export interface InternHubData {
-  interns: InternRow[];
-  inProgressInterns: InternRow[];
-}
+import type { InternHubData, InternRow, InternStatus } from "@slices/employeeHubSlice/employeeHub";
+import { parseDate } from "./dateHelpers";
 
 // Mirrors database:InternProfile in the backend (modules/database/types.bal).
 interface InternProfileApiRow {
@@ -48,13 +41,6 @@ interface InternProfileApiRow {
   employmentType: string | null;
 }
 
-// Whole months between two dates, rounded - e.g. 2025-01-01 -> 2025-07-01 is 6.
-function monthsBetween(start: Date | null, end: Date | null): string {
-  if (!start || !end || end < start) return "";
-  const days = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
-  return String(Math.round(days / 30.44));
-}
-
 // Someone whose employment type is no longer INTERNSHIP has moved on to a
 // permanent/probation role, so their internship is over. Their start/agreement
 // end dates on that row belong to the new role, not the internship.
@@ -65,7 +51,7 @@ function isStillInternshipRow(row: InternProfileApiRow): boolean {
 // An internship is active only while today is between its start and end
 // dates. employee_status isn't always flipped to "Left" once the agreement
 // end date passes, so the date alone decides that the internship is over.
-function statusFor(row: InternProfileApiRow, joinedDate: Date | null, endDate: Date | null): string {
+function statusFor(row: InternProfileApiRow, joinedDate: Date | null, endDate: Date | null): InternStatus {
   if (!isStillInternshipRow(row)) return "Ended";
   if ((row.employeeStatus || "").toLowerCase() === "left") return "Ended";
   const today = new Date();
@@ -75,78 +61,31 @@ function statusFor(row: InternProfileApiRow, joinedDate: Date | null, endDate: D
   return "In Progress";
 }
 
-function mapInternProfileToRow(row: InternProfileApiRow, idx: number): InternRow {
-  const name = row.name || "";
-  const email = row.email || "";
-  const gender = row.gender || "";
-  const mentorEmail = row.mentorEmail || "";
-  const bu = row.businessUnit || "";
-  const team = row.team || "";
-  const subTeam = row.subTeam || "";
-  const university = row.university || "";
+function mapInternProfileToRow(row: InternProfileApiRow): InternRow {
   const internshipRow = isStillInternshipRow(row);
-  const joinedRaw = internshipRow ? row.joinedDate || "" : "";
-  const endRaw = internshipRow ? row.endDate || "" : "";
-  const joinedDate = parseDate(joinedRaw);
-  const endDate = parseDate(endRaw);
-  const duration = monthsBetween(joinedDate, endDate);
-  const status = statusFor(row, joinedDate, endDate);
-  const id = String(row.id);
-  const employeeId = row.employeeId || "";
+  const joinedDate = internshipRow ? row.joinedDate || null : null;
+  const endDate = internshipRow ? row.endDate || null : null;
 
   return {
-    __raw: row,
-    id,
-    stableId: id,
-    employeeId,
-    rowIndex: String(idx),
-    Name: name,
-    "Email ID": email,
-    Gender: gender,
-    Mentor: mentorEmail,
-    BU: bu,
-    "Sub-Team": subTeam,
-    Team: team,
-    University: university,
-    "Duration (Months)": duration,
-    "Joined Date": joinedRaw,
-    "End Date": endRaw,
-    Status: status,
-    name,
-    emailId: email,
-    gender,
-    mentor: mentorEmail,
-    bu,
-    subTeam,
-    team,
-    university,
-    duration,
-    // Kept as the API's date strings, not Date objects - Redux state must
-    // stay serializable. Every consumer parses them with parseDate().
-    joinedDate: joinedRaw,
-    endDate: endRaw,
-    status,
+    id: String(row.id),
+    employeeId: row.employeeId || "",
+    name: row.name || "",
+    email: row.email || "",
+    gender: row.gender || "",
+    mentorEmail: row.mentorEmail || "",
+    bu: row.businessUnit || "",
+    team: row.team || "",
+    subTeam: row.subTeam || "",
+    university: row.university || "",
+    joinedDate,
+    endDate,
+    status: statusFor(row, parseDate(joinedDate), parseDate(endDate)),
   };
 }
 
-/** Fetches the full intern roster from GET /intern-profiles and splits it:
- * currently-running internships go to `inProgressInterns`, everything else
- * (Ended/Not Started) goes to `interns`. */
+/** Fetches the full intern roster from GET /intern-profiles. */
 export async function loadInternHubDataFromApi(): Promise<InternHubData> {
   const response = await APIService.getInstance().get(AppConfig.serviceUrls.internProfiles);
   const rows = (response.data || []) as InternProfileApiRow[];
-
-  const interns: InternRow[] = [];
-  const inProgressInterns: InternRow[] = [];
-
-  rows.forEach((row, idx) => {
-    const mapped = mapInternProfileToRow(row, idx);
-    if (mapped.Status === "In Progress") {
-      inProgressInterns.push(mapped);
-    } else {
-      interns.push(mapped);
-    }
-  });
-
-  return { interns, inProgressInterns };
+  return { interns: rows.map(mapInternProfileToRow) };
 }

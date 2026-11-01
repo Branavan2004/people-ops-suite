@@ -15,10 +15,9 @@
 -- under the License.
 
 -- =====================================================================
--- people_app_table_update_v1.2.2.sql
--- PROPOSAL - not yet reviewed or applied to any environment.
+-- people_app_table_update_v1.4.1.sql
 --
--- Runs against a database already at v1.2.1.
+-- Runs against a database already at v1.4.0.
 --
 -- Adds the `internship` table for the intern-only data that `employee`
 -- does not already hold: university. Every other

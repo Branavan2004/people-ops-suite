@@ -33,6 +33,7 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DateCalendar } from "@mui/x-date-pickers/DateCalendar";
 import { PickersDay } from "@mui/x-date-pickers/PickersDay";
+import type { PickerSelectionState } from "@mui/x-date-pickers/internals";
 import dayjs from "dayjs";
 import {
   ResponsiveContainer, LineChart, BarChart,
@@ -70,38 +71,39 @@ import { useEmployeeHub } from "@hooks/useEmployeeHub";
 import { useEmployeeHubBootstrap } from "@hooks/useEmployeeHubBootstrap";
 import { useEmployeeHubColors, type EmployeeHubColors } from "@hooks/useEmployeeHubColors";
 import {
-  parseDate, isSameMonthAndYear, isPreviousMonthAndYear, getLastDayOfMonth,
+  parseDate, isSameMonthAndYear, isPreviousMonthAndYear, getLastDayOfMonth, startOfDay,
   formatDateToken as format, isDateToday as isToday, formatReadableDate,
-  type InternRow,
 } from "@utils/employeeHub/dateHelpers";
-import { isEndedStatus, getStatusDisplay, deriveInternStatus } from "@utils/employeeHub/statusHelpers";
-import { resolveNameByEmail } from "@utils/employeeHub/internHelpers";
-import type { EmployeeRow } from "@utils/employeeHub/employeeApiData";
+import { isEndedStatus, getStatusDisplay } from "@utils/employeeHub/statusHelpers";
+import { resolveNameByEmail, buildEmailLookup, emailKey } from "@utils/employeeHub/internHelpers";
+import type { EmployeeRow, InternRow } from "@slices/employeeHubSlice/employeeHub";
 import { EmployeeStatus } from "@/types/types";
 
 type ViewKind = "interns" | "employees";
+
+type PersonModal = { title: string; subtitle: string } & (
+  | { kind: "interns"; rows: InternRow[] }
+  | { kind: "employees"; rows: EmployeeRow[] }
+);
 
 const useDateFilter = (interns: InternRow[] = [], selectedDateString: string) => {
   return useMemo(() => {
     const selectedDate = parseDate(selectedDateString) || new Date();
     const lastDay = getLastDayOfMonth(selectedDate);
 
-    let prevMonthCount = 0, newJoinersCount = 0, accumulatedCount = 0, resignationsCount = 0, proceedingNextMonthCount = 0, totalActiveOverall = 0;
+    let prevMonthCount = 0, newJoinersCount = 0, accumulatedCount = 0, proceedingNextMonthCount = 0;
 
     interns.forEach((intern) => {
-      const joined = parseDate(intern["Joined Date"]);
-      const end = parseDate(intern["End Date"]);
-      const status = (intern["Status"] || "").trim().toLowerCase();
+      const joined = parseDate(intern.joinedDate);
+      const end = parseDate(intern.endDate);
 
       if (joined && isPreviousMonthAndYear(joined, selectedDate)) prevMonthCount++;
       if (joined && isSameMonthAndYear(joined, selectedDate)) newJoinersCount++;
       if (joined && end && joined <= selectedDate && end >= selectedDate) accumulatedCount++;
-      if (status === "resigned" && end && isSameMonthAndYear(end, selectedDate)) resignationsCount++;
-      if (end && lastDay && end > lastDay && status !== "resigned") proceedingNextMonthCount++;
-      if (status === "active" || status === "extended") totalActiveOverall++;
+      if (end && lastDay && end > lastDay) proceedingNextMonthCount++;
     });
 
-    return { prevMonthCount, newJoinersCount, accumulatedCount, resignationsCount, proceedingNextMonthCount, totalActiveOverall };
+    return { prevMonthCount, newJoinersCount, accumulatedCount, proceedingNextMonthCount };
   }, [interns, selectedDateString]);
 };
 
@@ -125,7 +127,7 @@ const canonicalGroupKey = (v: unknown): string => {
   return s ? s.toUpperCase() : "";
 };
 
-const isActiveStatus = (i: InternRow) => !isEndedStatus(i.Status || i.status) && (i.Status || i.status || "").toString().trim() !== "";
+const isActiveStatus = (i: InternRow) => getStatusDisplay(i.status).colorKey === "active";
 
 // Pyramid levels by designation.job_band, most senior first: bands 1-4
 // (only a handful of people) share the base level, every band above that is
@@ -180,11 +182,16 @@ const employmentTypesIn = (rows: EmployeeRow[]) =>
 // Final day of employment has passed (or is today) - i.e. the person has
 // actually left, whether or not the scheduler has flipped them to "Left" yet.
 const departureDate = (e: EmployeeRow): Date | null => {
-  const f = parseDate(e.finalDayOfEmployment || "");
+  const f = parseDate(e.finalDayOfEmployment);
   return f && f <= new Date() ? f : null;
 };
 
-const countBy = (rows: any[], getKey: (row: any) => unknown) => {
+// A "Left" employee with no final day on record left on an unknown date, so
+// they can't be placed in any point-in-time headcount.
+const hasUnknownDeparture = (e: EmployeeRow) =>
+  e.status === EmployeeStatus.Left && !parseDate(e.finalDayOfEmployment);
+
+const countBy = <T,>(rows: T[], getKey: (row: T) => unknown) => {
   const counts: Record<string, number> = {};
   rows.forEach((row) => {
     const key = normalize(getKey(row)) || "Unknown";
@@ -197,15 +204,14 @@ const countBy = (rows: any[], getKey: (row: any) => unknown) => {
 // reporting manager) resolved from an email column - also carries that
 // person's employeeId along, so the resulting row can link to their real
 // people-app profile instead of just being a display label.
-const countByPerson = (rows: any[], getEmail: (row: any) => unknown, employees: EmployeeRow[]) => {
+const countByPerson = <T,>(rows: T[], getEmail: (row: T) => string, employeesByEmail: Map<string, EmployeeRow>) => {
   const counts: Record<string, { name: string; value: number; id: string | null }> = {};
   rows.forEach((row) => {
-    const email = String(getEmail(row) || "").trim().toLowerCase();
+    const email = emailKey(getEmail(row));
     if (!email) return; // No one assigned - excluded rather than ranked as a "—" entry.
-    const name = normalize(resolveNameByEmail(email, employees)) || "Unknown";
+    const name = normalize(resolveNameByEmail(email, employeesByEmail)) || "Unknown";
     if (!counts[name]) {
-      const match = employees.find((e) => (e.email || "").trim().toLowerCase() === email);
-      counts[name] = { name, value: 0, id: match?.id ?? null };
+      counts[name] = { name, value: 0, id: employeesByEmail.get(email)?.employeeId ?? null };
     }
     counts[name].value += 1;
   });
@@ -716,17 +722,7 @@ function CalendarDayCell(props: any) {
   );
 }
 
-// Many rows leave the "Status" cell blank and rely on Joined/End Date instead,
-// so checking the raw cell alone misses most ended/resigned interns. This
-// derives the effective status from dates first, falling back to the cell.
-function internHasEnded(intern: InternRow) {
-  const effective = deriveInternStatus({
-    status: intern.Status || intern.status,
-    joinedDate: intern["Joined Date"] || intern.joinedDate,
-    endDate: intern["End Date"] || intern.endDate,
-  });
-  return isEndedStatus(effective);
-}
+const internHasEnded = (intern: InternRow) => isEndedStatus(intern.status);
 
 // Connected-stage strip: each stage is a proportional bar relative to the first.
 const FunnelStrip = ({ stages }: { stages: { label: string; value: number }[] }) => {
@@ -817,7 +813,7 @@ const GroupBreakdown = ({ rows, kind }: { rows: any[]; kind: ViewKind }) => {
     const pctKey = "Active";
     const map: Record<string, { group: string; total: number; values: Record<string, number> }> = {};
     rows.forEach((r: any) => {
-      const group = canonicalGroupKey(kind === "employees" ? r.team : (r.BU || r.bu)) || "Unspecified";
+      const group = canonicalGroupKey(kind === "employees" ? r.team : r.bu) || "Unspecified";
       if (!map[group]) map[group] = { group, total: 0, values: {} };
       map[group].total += 1;
       const col = kind === "employees" ? ((r as EmployeeRow).employmentType || "Unspecified") : (isActiveStatus(r) ? "Active" : "Ended");
@@ -943,8 +939,8 @@ export default function EmployeeHubDashboard() {
   }, [view, subTab]);
 
   const {
-    interns, inProgressInterns, loading: internsLoading, refetch: refetchInterns,
-    employees, leavers, jobBandRows, employeesLoading, refetchEmployees, employeesIsLive,
+    interns, loading: internsLoading, refetch: refetchInterns,
+    employees, leavers, employeesLoading, refetchEmployees, employeesIsLive,
   } = useEmployeeHub();
   useEmployeeHubBootstrap();
   const [date, setDate] = useState(new Date());
@@ -958,6 +954,7 @@ export default function EmployeeHubDashboard() {
   // full roster for whichever view is selected.
   const cleanEmployees = useMemo(() => (employees || []).filter((e) => normalize(e.name)), [employees]);
   const cleanLeavers = useMemo(() => (leavers || []).filter((e) => normalize(e.name)), [leavers]);
+  const employeesByEmail = useMemo(() => buildEmailLookup(cleanEmployees), [cleanEmployees]);
   // Everyone who has held a non-intern role - current staff plus leavers -
   // so historical headcount and departures can be reconstructed per period.
   const everyEmployee = useMemo(() => [...cleanEmployees, ...cleanLeavers], [cleanEmployees, cleanLeavers]);
@@ -973,11 +970,11 @@ export default function EmployeeHubDashboard() {
     { key: "designation", label: "Job Title", get: (e: EmployeeRow) => normalize(e.designation) || "Unspecified" },
     { key: "gender", label: "Gender", get: (e: EmployeeRow) => genderLabel(e.gender) },
     { key: "location", label: "Location", get: (e: EmployeeRow) => normalize(e.location) || "Unspecified" },
-    { key: "lead", label: "Lead", get: (e: EmployeeRow) => normalize(resolveNameByEmail(e.reportingManager, cleanEmployees)) || "Unassigned" },
+    { key: "lead", label: "Lead", get: (e: EmployeeRow) => normalize(resolveNameByEmail(e.reportingManager, employeesByEmail)) || "Unassigned" },
     { key: "status", label: "Status", get: (e: EmployeeRow) => e.status || "Unknown" },
     { key: "tenure", label: "Years at Company", get: (e: EmployeeRow) => { const j = parseDate(e.joinDate); return j ? tenureGroup(yearsBetween(j, new Date())) : "Unknown"; } },
     { key: "joinYear", label: "Year Joined", get: (e: EmployeeRow) => String(parseDate(e.joinDate)?.getFullYear() || "Unknown") },
-  ]), [cleanEmployees]);
+  ]), [employeesByEmail]);
   const [empFilters, setEmpFilters] = useState<Record<string, string[]>>({});
   const [empJoinedFrom, setEmpJoinedFrom] = useState("");
   const [empJoinedTo, setEmpJoinedTo] = useState("");
@@ -1023,27 +1020,19 @@ export default function EmployeeHubDashboard() {
   }, [filteredEmployees]);
   const markedLeaversEmp = useMemo(() => cleanEmployees.filter((e) => e.status === EmployeeStatus.MarkedLeaver), [cleanEmployees]);
 
-  const currentInterns = useMemo(() => (inProgressInterns || []).filter((i) => normalize(i.Name || i.name)), [inProgressInterns]);
-  // The `interns` slice only holds Ended/Not Started rows - internApiData.ts
-  // routes every "In Progress" row into the separate `inProgressInterns`
-  // slice instead. Every roster-wide count, chart and list below needs both,
-  // otherwise current interns silently drop out of totals, trends and splits.
-  const cleanInterns = useMemo(
-    () => [...(interns || []).filter((i) => normalize(i.Name || i.name)), ...currentInterns],
-    [interns, currentInterns]
-  );
-  const activeInterns = currentInterns;
+  const cleanInterns = useMemo(() => (interns || []).filter((i) => normalize(i.name)), [interns]);
+  const activeInterns = useMemo(() => cleanInterns.filter(isActiveStatus), [cleanInterns]);
 
   // ---- Interns > Explore filters ----
   const internFilterFields = useMemo(() => ([
-    { key: "bu", label: "Business Unit", get: (i: InternRow) => canonicalGroupKey(i.BU || i.bu) || "Unspecified" },
-    { key: "team", label: "Team", get: (i: InternRow) => canonicalGroupKey(i.Team || i.team) || "Unspecified" },
-    { key: "university", label: "University", get: (i: InternRow) => normalize(i.University || i.university) || "Unspecified" },
-    { key: "mentor", label: "Mentor", get: (i: InternRow) => normalize(resolveNameByEmail(i.Mentor || i.mentor, cleanEmployees)) || "Unassigned" },
-    { key: "status", label: "Status", get: (i: InternRow) => getStatusDisplay(i.Status || i.status).label || "Unknown" },
-    { key: "gender", label: "Gender", get: (i: InternRow) => { const g = String(i.Gender || i.gender || "").toLowerCase(); return g.startsWith("m") ? "Male" : g.startsWith("f") ? "Female" : "Not recorded"; } },
-    { key: "joinYear", label: "Year Joined", get: (i: InternRow) => String(parseDate(i["Joined Date"] || i.joinedDate)?.getFullYear() || "Unknown") },
-  ]), [cleanEmployees]);
+    { key: "bu", label: "Business Unit", get: (i: InternRow) => canonicalGroupKey(i.bu) || "Unspecified" },
+    { key: "team", label: "Team", get: (i: InternRow) => canonicalGroupKey(i.team) || "Unspecified" },
+    { key: "university", label: "University", get: (i: InternRow) => normalize(i.university) || "Unspecified" },
+    { key: "mentor", label: "Mentor", get: (i: InternRow) => normalize(resolveNameByEmail(i.mentorEmail, employeesByEmail)) || "Unassigned" },
+    { key: "status", label: "Status", get: (i: InternRow) => getStatusDisplay(i.status).label || "Unknown" },
+    { key: "gender", label: "Gender", get: (i: InternRow) => genderLabel(i.gender) },
+    { key: "joinYear", label: "Year Joined", get: (i: InternRow) => String(parseDate(i.joinedDate)?.getFullYear() || "Unknown") },
+  ]), [employeesByEmail]);
   const [internFilters, setInternFilters] = useState<Record<string, string[]>>({});
   const [internJoinedFrom, setInternJoinedFrom] = useState("");
   const [internJoinedTo, setInternJoinedTo] = useState("");
@@ -1064,7 +1053,7 @@ export default function EmployeeHubDashboard() {
         if (sel && sel.length && !sel.includes(normalize(f.get(i)) || "Unknown")) return false;
       }
       if (from || to) {
-        const j = parseDate(i["Joined Date"] || i.joinedDate);
+        const j = parseDate(i.joinedDate);
         if (!j || (from && j < from) || (to && j > to)) return false;
       }
       return true;
@@ -1072,41 +1061,36 @@ export default function EmployeeHubDashboard() {
   }, [cleanInterns, internFilterFields, internFilters, internJoinedFrom, internJoinedTo]);
   const clearInternFilters = () => { setInternFilters({}); setInternJoinedFrom(""); setInternJoinedTo(""); };
   const internStatusMix = useMemo(() => {
-    const active = filteredInterns.filter(isActiveStatus).length;
+    const count = (key: string) => filteredInterns.filter((i) => getStatusDisplay(i.status).colorKey === key).length;
     return [
-      { name: "Active", value: active, color: C.teal },
-      { name: "Ended", value: filteredInterns.length - active, color: C.red },
+      { name: "Active", value: count("active"), color: C.teal },
+      { name: "Not Started", value: count("not_started"), color: C.yellow },
+      { name: "Ended", value: count("ended"), color: C.red },
     ].filter((d) => d.value > 0);
   }, [filteredInterns, C]);
   const exploreIntern = useMemo(() => {
     return {
-      bu: countBy(filteredInterns, (i) => canonicalGroupKey(i.BU || i.bu) || "Unspecified").slice(0, 10),
-      joinedByYear: (() => {
-        const counts: Record<string, number> = {};
-        filteredInterns.forEach((i) => { const y = parseDate(i["Joined Date"] || i.joinedDate)?.getFullYear(); if (y) counts[y] = (counts[y] || 0) + 1; });
-        return Object.keys(counts).sort().slice(-8).map((y) => ({ name: y, value: counts[y] }));
-      })(),
-      universityCount: new Set(filteredInterns.map((i) => normalize(i.University || i.university)).filter(Boolean)).size,
-      mentorCount: new Set(filteredInterns.map((i) => String(i.Mentor || i.mentor || "").trim().toLowerCase()).filter(Boolean)).size,
+      universityCount: new Set(filteredInterns.map((i) => normalize(i.university)).filter(Boolean)).size,
+      mentorCount: new Set(filteredInterns.map((i) => emailKey(i.mentorEmail)).filter(Boolean)).size,
     };
   }, [filteredInterns]);
 
-  const { prevMonthCount, newJoinersCount, accumulatedCount, proceedingNextMonthCount, totalActiveOverall } =
+  const { prevMonthCount, newJoinersCount, accumulatedCount, proceedingNextMonthCount } =
     useDateFilter(cleanInterns, format(date, "yyyy-MM-dd"));
 
   const empDateStats = useMemo(() => {
-    let prevMonthHires = 0, newHires = 0, hiredThisYear = 0, hiredThisQuarter = 0;
-    const quarterStart = new Date(date); quarterStart.setMonth(quarterStart.getMonth() - 3);
+    let newHires = 0, hiredThisYear = 0, hiredThisQuarter = 0;
+    // dayjs clamps to the month's last day (31 May - 3 months = 28/29 Feb),
+    // where Date.setMonth would overflow into March.
+    const quarterStart = dayjs(startOfDay(date)).subtract(3, "month").toDate();
     cleanEmployees.forEach((e) => {
       const j = parseDate(e.joinDate);
       if (!j) return;
       if (isSameMonthAndYear(j, date)) newHires++;
-      const target = new Date(date); target.setMonth(target.getMonth() - 1);
-      if (isSameMonthAndYear(j, target)) prevMonthHires++;
       if (j.getFullYear() === date.getFullYear()) hiredThisYear++;
       if (j >= quarterStart && j <= date) hiredThisQuarter++;
     });
-    return { prevMonthHires, newHires, hiredThisYear, hiredThisQuarter };
+    return { newHires, hiredThisYear, hiredThisQuarter };
   }, [cleanEmployees, date]);
 
   // Only employment type "Probation" - Permanent staff also carry a
@@ -1121,53 +1105,55 @@ export default function EmployeeHubDashboard() {
   const consultantsEmp = useMemo(() => cleanEmployees.filter((e) => /consult/i.test(e.employmentType)), [cleanEmployees]);
 
 
+  // Date-only values parse to midnight, so comparisons against the selected
+  // day use its start rather than `date`, which carries the time of day.
+  const dayStart = useMemo(() => startOfDay(date), [date]);
+
   const newJoinersListInterns = useMemo(() => cleanInterns.filter((i) => {
-    const j = parseDate(i["Joined Date"]);
+    const j = parseDate(i.joinedDate);
     return j && isSameMonthAndYear(j, date);
   }), [cleanInterns, date]);
 
 
   const prevMonthListInterns = useMemo(() => cleanInterns.filter((i) => {
-    const j = parseDate(i["Joined Date"]);
+    const j = parseDate(i.joinedDate);
     return j && isPreviousMonthAndYear(j, date);
   }), [cleanInterns, date]);
 
   const activeOnDateListInterns = useMemo(() => cleanInterns.filter((i) => {
-    const j = parseDate(i["Joined Date"]);
-    const e = parseDate(i["End Date"]);
-    return j && e && j <= date && e >= date;
-  }), [cleanInterns, date]);
+    const j = parseDate(i.joinedDate);
+    const e = parseDate(i.endDate);
+    return j && e && j <= dayStart && e >= dayStart;
+  }), [cleanInterns, dayStart]);
 
   const proceedingListInterns = useMemo(() => {
     const lastDay = getLastDayOfMonth(date);
     return cleanInterns.filter((i) => {
-      const e = parseDate(i["End Date"]);
-      const status = normalize(i.Status || i.status).toLowerCase();
-      return e && lastDay && e > lastDay && status !== "resigned";
+      const e = parseDate(i.endDate);
+      return e && lastDay && e > lastDay;
     });
   }, [cleanInterns, date]);
 
   const totalActiveListInterns = activeInterns;
 
   const endingSoonList = useMemo(() => {
-    const soon = new Date(date); soon.setDate(soon.getDate() + 30);
-    return activeInterns.filter((i) => { const e = parseDate(i["End Date"] || i.endDate); return e && e >= date && e <= soon; });
-  }, [activeInterns, date]);
+    const soon = new Date(dayStart); soon.setDate(soon.getDate() + 30);
+    return activeInterns.filter((i) => { const e = parseDate(i.endDate); return e && e >= dayStart && e <= soon; });
+  }, [activeInterns, dayStart]);
 
 
   const calendarJoinDates = useMemo(() => {
-    const src = view === "interns" ? cleanInterns : cleanEmployees;
-    const field = view === "interns" ? "Joined Date" : "joinDate";
-    return src.map((row: any) => parseDate(row[field])).filter(Boolean) as Date[];
+    const dates = view === "interns" ? cleanInterns.map((i) => i.joinedDate) : cleanEmployees.map((e) => e.joinDate);
+    return dates.map(parseDate).filter(Boolean) as Date[];
   }, [view, cleanInterns, cleanEmployees]);
 
   const calendarEndDates = useMemo(() => {
     if (view !== "interns") return departedEmployees.map(departureDate) as Date[];
-    return cleanInterns.filter(internHasEnded).map((i) => parseDate(i["End Date"])).filter(Boolean) as Date[];
+    return cleanInterns.filter(internHasEnded).map((i) => parseDate(i.endDate)).filter(Boolean) as Date[];
   }, [view, cleanInterns, departedEmployees]);
 
   const [calendarAnchor, setCalendarAnchor] = useState<HTMLElement | null>(null);
-  const [personModal, setPersonModal] = useState<{ title: string; subtitle: string; rows: any[]; kind: ViewKind } | null>(null);
+  const [personModal, setPersonModal] = useState<PersonModal | null>(null);
   const [modalSearch, setModalSearch] = useState("");
   useEffect(() => { setModalSearch(""); }, [personModal]);
 
@@ -1177,8 +1163,8 @@ export default function EmployeeHubDashboard() {
     const sameDay = (a: Date | null) => !!a && a.getFullYear() === d.getFullYear() && a.getMonth() === d.getMonth() && a.getDate() === d.getDate();
     const dateLabel = format(d, "d MMM yyyy");
     if (view === "interns") {
-      const joinedRows = cleanInterns.filter((i) => sameDay(parseDate(i["Joined Date"])));
-      const endedRows = cleanInterns.filter((i) => internHasEnded(i) && sameDay(parseDate(i["End Date"])));
+      const joinedRows = cleanInterns.filter((i) => sameDay(parseDate(i.joinedDate)));
+      const endedRows = cleanInterns.filter((i) => internHasEnded(i) && sameDay(parseDate(i.endDate)));
       if (joinedRows.length && endedRows.length) {
         setPersonModal({ title: "Activity on This Day", subtitle: `${dateLabel} · ${joinedRows.length} joined, ${endedRows.length} ended`, rows: [...joinedRows, ...endedRows], kind: "interns" });
       } else if (joinedRows.length) {
@@ -1214,8 +1200,8 @@ export default function EmployeeHubDashboard() {
     }
     periods.forEach((p) => {
       cleanInterns.forEach((intern) => {
-        const j = parseDate(intern["Joined Date"] || intern.joinedDate);
-        const e = parseDate(intern["End Date"] || intern.endDate);
+        const j = parseDate(intern.joinedDate);
+        const e = parseDate(intern.endDate);
         if (j && j <= p.end && (!e || e >= p.start)) p.active++;
         if (j && j >= p.start && j <= p.end) p.intake++;
         if (internHasEnded(intern) && e && e >= p.start && e <= p.end) p.resignations++;
@@ -1244,7 +1230,7 @@ export default function EmployeeHubDashboard() {
         const j = parseDate(emp.joinDate);
         if (!j) return;
         const f = departureDate(emp);
-        if (j <= p.end && (!f || f >= p.start)) p.active++;
+        if (!hasUnknownDeparture(emp) && j <= p.end && (!f || f >= p.start)) p.active++;
         if (j >= p.start && j <= p.end) p.intake++;
         if (f && f >= p.start && f <= p.end) p.resignations++;
       });
@@ -1254,20 +1240,18 @@ export default function EmployeeHubDashboard() {
 
 
 
-  const teamData = useMemo(() => countBy(activeInterns, (i) => canonicalGroupKey(i.Team || i.team)), [activeInterns]);
-  const universityData = useMemo(() => countBy(activeInterns, (i) => i.University || i.university), [activeInterns]);
-  const mentorData = useMemo(() => countByPerson(activeInterns, (i) => i.Mentor || i.mentor, cleanEmployees), [activeInterns, cleanEmployees]);
+  const teamData = useMemo(() => countBy(activeInterns, (i) => canonicalGroupKey(i.team)), [activeInterns]);
+  const universityData = useMemo(() => countBy(activeInterns, (i) => i.university), [activeInterns]);
+  const mentorData = useMemo(() => countByPerson(activeInterns, (i) => i.mentorEmail, employeesByEmail), [activeInterns, employeesByEmail]);
 
   // Every distinct team, for the job-band pyramid's team selector - not
   // capped to a top-N, since a team with a small
   // headcount should still be pickable here.
   const allTeamsEmp = useMemo(() => countBy(cleanEmployees, (e) => canonicalGroupKey(e.team)), [cleanEmployees]);
   const [pyramidTeam, setPyramidTeam] = useState(ALL_TEAMS);
-  // Job band charts use jobBandRows (team + band per person, built from the
-  // backend's per-team counts).
   const pyramidEmployees = useMemo(
-    () => pyramidTeam === ALL_TEAMS ? jobBandRows : jobBandRows.filter((e) => canonicalGroupKey(e.team) === pyramidTeam),
-    [jobBandRows, pyramidTeam]
+    () => pyramidTeam === ALL_TEAMS ? cleanEmployees : cleanEmployees.filter((e) => canonicalGroupKey(e.team) === pyramidTeam),
+    [cleanEmployees, pyramidTeam]
   );
   const jobBandPyramidData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1281,7 +1265,7 @@ export default function EmployeeHubDashboard() {
   // Team-wise job band split, largest teams first (all teams; the table scrolls).
   const jobBandByTeamEmp = useMemo(() => {
     const map: Record<string, Record<string, number> & { name: string; total: number }> = {};
-    jobBandRows.forEach((e) => {
+    cleanEmployees.forEach((e) => {
       const team = canonicalGroupKey(e.team) || "Unspecified";
       if (!map[team]) map[team] = { name: team, total: 0 } as any;
       const tier = tierForJobBand(e.jobBand);
@@ -1289,7 +1273,7 @@ export default function EmployeeHubDashboard() {
       map[team].total += 1;
     });
     return Object.values(map).sort((a, b) => b.total - a.total);
-  }, [jobBandRows]);
+  }, [cleanEmployees]);
   // Junior -> senior, then No Band; only columns that have anyone in them.
   const jobBandColumns = useMemo(
     () => [...[...JOB_BAND_TIERS].reverse().map((t) => t.key as string), NO_BAND_TIER]
@@ -1300,8 +1284,8 @@ export default function EmployeeHubDashboard() {
   const jobBandAllRow = useMemo(() => {
     const row: Record<string, number> = {};
     jobBandByTeamEmp.forEach((r) => jobBandColumns.forEach((col) => { row[col] = (row[col] || 0) + ((r as any)[col] || 0); }));
-    return { counts: row, total: jobBandRows.length, max: Math.max(1, ...Object.values(row)) };
-  }, [jobBandByTeamEmp, jobBandColumns, jobBandRows]);
+    return { counts: row, total: cleanEmployees.length, max: Math.max(1, ...Object.values(row)) };
+  }, [jobBandByTeamEmp, jobBandColumns, cleanEmployees]);
   const jobBandCellMax = useMemo(
     () => Math.max(1, ...jobBandByTeamEmp.flatMap((r) => jobBandColumns.map((col) => (r as any)[col] || 0))),
     [jobBandByTeamEmp, jobBandColumns]
@@ -1342,6 +1326,7 @@ export default function EmployeeHubDashboard() {
     return points.map(({ label, at }) => ({
       label,
       value: everyEmployee.filter((e) => {
+        if (hasUnknownDeparture(e)) return false;
         const j = parseDate(e.joinDate);
         const f = departureDate(e);
         return j && j <= at && (!f || f > at);
@@ -1402,19 +1387,22 @@ export default function EmployeeHubDashboard() {
   const endingSoon = endingSoonList.length;
 
   const handleExport = () => {
-    if (view === "employees") {
-      const csv = Papa.unparse(cleanEmployees.map((e) => ({ Name: e.name || "", Team: e.team || "", BU: e.bu || "", Status: e.status || "", "Join Date": e.joinDate || "", "Employment Type": e.employmentType || "", "Job Band": e.jobBand ?? "", "Reporting Lead": e.reportingManager || "" })));
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-      link.download = `wso2-employees-${format(new Date(), "yyyy-MM-dd")}.csv`;
-      link.click(); URL.revokeObjectURL(link.href);
-      return;
-    }
-    const csv = Papa.unparse(cleanInterns.map((i) => ({ Name: i.Name || "", BU: i.BU || "", Team: i.Team || "", Status: i.Status || "", "Joined Date": i["Joined Date"] || "", "End Date": i["End Date"] || "", Mentor: i.Mentor || "" })));
+    // escapeFormulae stops a cell starting with =, +, - or @ from running as a
+    // formula when the file is opened in a spreadsheet.
+    const csv = view === "employees"
+      ? Papa.unparse(cleanEmployees.map((e) => ({ Name: e.name, Team: e.team, BU: e.bu, Status: e.status, "Join Date": e.joinDate || "", "Employment Type": e.employmentType, "Job Band": e.jobBand ?? "", "Reporting Lead": e.reportingManager })), { escapeFormulae: true })
+      : Papa.unparse(cleanInterns.map((i) => ({ Name: i.name, BU: i.bu, Team: i.team, Status: i.status, "Joined Date": i.joinedDate || "", "End Date": i.endDate || "", Mentor: i.mentorEmail })), { escapeFormulae: true });
+    // Same download steps as EmployeeReportTable.handleExport: the link must be
+    // in the page, and revoking the URL straight after click() can cancel the
+    // download in Firefox and Safari.
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-    link.download = `wso2-interns-${format(new Date(), "yyyy-MM-dd")}.csv`;
-    link.click(); URL.revokeObjectURL(link.href);
+    link.href = url;
+    link.download = `wso2-${view}-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
   const peakActive = Math.max(...trendData.map((d) => d.active), 0);
@@ -1431,11 +1419,11 @@ export default function EmployeeHubDashboard() {
     const start = new Date(date.getFullYear(), date.getMonth() - 11 + k, 1);
     return { name: format(start, "MMM yy"), start, end: new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59) };
   }), [date]);
-  const joinedPerMonth = (rows: any[], getDate: (r: any) => unknown) => lastTwelveMonths.map((m) => ({
+  const joinedPerMonth = <T,>(rows: T[], getDate: (r: T) => unknown) => lastTwelveMonths.map((m) => ({
     name: m.name,
     value: rows.filter((r) => { const j = parseDate(getDate(r)); return j && j >= m.start && j <= m.end; }).length,
   }));
-  const dimensionData = (rows: any[], field: { key: string; get: (r: any) => string }, order?: readonly string[]) => {
+  const dimensionData = <T,>(rows: T[], field: { key: string; get: (r: T) => string }, order?: readonly string[]) => {
     const counts = countBy(rows, field.get);
     if (order) return counts.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
     if (field.key === "joinYear") return counts.sort((a, b) => b.name.localeCompare(a.name));
@@ -1480,11 +1468,12 @@ export default function EmployeeHubDashboard() {
     return {
       stats: [
         { label: "Working now", value: internStatusMix.find((d) => d.name === "Active")?.value || 0, color: C.teal },
+        { label: "Not started yet", value: internStatusMix.find((d) => d.name === "Not Started")?.value || 0, color: C.yellow },
         { label: "Finished", value: internStatusMix.find((d) => d.name === "Ended")?.value || 0, color: C.red },
         { label: "Universities", value: exploreIntern.universityCount, color: C.purple },
         { label: "Mentors", value: exploreIntern.mentorCount, color: C.yellow },
       ],
-      timeline: joinedPerMonth(filteredInterns, (i) => i["Joined Date"] || i.joinedDate),
+      timeline: joinedPerMonth(filteredInterns, (i) => i.joinedDate),
       dimensions: [
         dim("status", "Status", PieChartIcon, C.teal, true),
         dim("bu", "Business Unit", AccountBalanceIcon, C.teal),
@@ -1541,7 +1530,13 @@ export default function EmployeeHubDashboard() {
             <LocalizationProvider dateAdapter={AdapterDayjs}>
               <DateCalendar
                 value={dayjs(date)}
-                onChange={(d: dayjs.Dayjs | null) => { handleCalendarSelect(d ? d.toDate() : undefined); setCalendarAnchor(null); }}
+                onChange={(d: dayjs.Dayjs | null, selectionState?: PickerSelectionState) => {
+                  // Picking a year or month fires a "partial" change before the
+                  // day view opens; only a picked day selects a date.
+                  if (selectionState !== "finish") return;
+                  handleCalendarSelect(d ? d.toDate() : undefined);
+                  setCalendarAnchor(null);
+                }}
                 slots={{ day: CalendarDayCell as any }}
                 slotProps={{ day: { joinDates: calendarJoinDates, endDates: calendarEndDates } as any }}
                 sx={{ backgroundColor: C.surface, color: C.text }}
@@ -1623,7 +1618,7 @@ export default function EmployeeHubDashboard() {
           {/* KPI Cards */}
           {view === "interns" ? (
             <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 1.5 }}>
-              <KPICard label="Current Interns" value={activeInterns.length || totalActiveOverall} color={C.teal} icon={GroupsIcon}
+              <KPICard label="Current Interns" value={activeInterns.length} color={C.teal} icon={GroupsIcon}
                 onClick={() => setPersonModal({ title: "Current Interns", subtitle: "Interns working now", rows: totalActiveListInterns, kind: "interns" })} />
               <KPICard label="Joined Last Month" value={prevMonthCount} color={C.text} icon={AccessTimeIcon}
                 onClick={() => setPersonModal({ title: "Joined Last Month", subtitle: format(date, "MMMM yyyy"), rows: prevMonthListInterns, kind: "interns" })} />
@@ -2022,7 +2017,7 @@ export default function EmployeeHubDashboard() {
 }
 
 function PersonListModal({ modal, search, onSearchChange, employeesIsLive, onClose, onOpenPerson }: {
-  modal: { title: string; subtitle: string; rows: any[]; kind: ViewKind } | null;
+  modal: PersonModal | null;
   search: string;
   onSearchChange: (v: string) => void;
   employeesIsLive: boolean;
@@ -2038,17 +2033,21 @@ function PersonListModal({ modal, search, onSearchChange, employeesIsLive, onClo
   const isPhone = useMediaQuery(theme.breakpoints.down("sm"));
   const isIntern = modal?.kind === "interns";
 
-  const mapped = useMemo(() => (modal?.rows || []).map((row, i) => {
-    const name = isIntern ? (row.Name || row.name) : row.name;
-    const group = isIntern ? (row.BU || row.bu || "Unspecified") : (row.team || row.bu || "Unspecified");
-    const role = isIntern ? (row.Team || row.team || "—") : (row.designation || "—");
-    const joined = isIntern ? (row["Joined Date"] || row.joinedDate || "") : (row.joinDate || "");
-    const id = row.employeeId || row.id;
-    // Links to the person's people-app profile (/employees/:id), once the
-    // employee fetch has succeeded; until then rows stay unclickable.
-    const path = employeesIsLive && id != null ? `/employees/${encodeURIComponent(id)}` : null;
-    return { key: id ?? i, name: name || "Unnamed", group: canonicalGroupKey(group) || "Unspecified", role, joined, path };
-  }), [modal, isIntern, employeesIsLive]);
+  const mapped = useMemo(() => {
+    if (!modal) return [];
+    const people = modal.kind === "interns"
+      ? modal.rows.map((i) => ({ id: i.employeeId || i.id, name: i.name, group: i.bu, role: i.team || "—", joined: i.joinedDate || "" }))
+      : modal.rows.map((e) => ({ id: e.employeeId, name: e.name, group: e.team || e.bu, role: e.designation || "—", joined: e.joinDate || "" }));
+    return people.map((p, i) => ({
+      ...p,
+      key: `${p.id}-${i}`,
+      name: p.name || "Unnamed",
+      group: canonicalGroupKey(p.group) || "Unspecified",
+      // Links to the person's people-app profile (/employees/:id), once the
+      // employee fetch has succeeded; until then rows stay unclickable.
+      path: employeesIsLive && p.id ? `/employees/${encodeURIComponent(p.id)}` : null,
+    }));
+  }, [modal, employeesIsLive]);
 
   const filtered = useMemo(() => {
     if (!search) return mapped;
