@@ -440,6 +440,15 @@ public isolated function getEmploymentTypes() returns EmploymentType[]|error {
         select employmentType;
 }
 
+# Fetch the universities already recorded for interns, most common first.
+#
+# + return - University names, or error
+public isolated function getUniversities() returns string[]|error {
+    stream<UniversityRow, error?> universityStream = databaseClient->query(getUniversitiesQuery());
+    return from UniversityRow row in universityStream
+        select row.university;
+}
+
 # Fetch IDP group names mapped to an employment type.
 #
 # + employmentTypeId - Employment type ID
@@ -625,6 +634,10 @@ public isolated function addEmployee(CreateEmployeePayload payload, string creat
         lastInsertedId = check addEmployeeRecord(payload, createdBy, personalInfoId, employeeId);
         check syncEmergencyContacts(employeeId, payload.personalInfo.emergencyContacts ?: [], createdBy);
         check syncAdditionalManagers(employeeId, payload.additionalManagerEmails, createdBy);
+        string university = (payload.university ?: "").trim();
+        if university != "" {
+            _ = check databaseClient->execute(addInternshipQuery(lastInsertedId, university, createdBy));
+        }
         check commit;
     }
     return lastInsertedId;
@@ -645,6 +658,8 @@ public isolated function deleteEmployeeById(string employeeId) returns error? {
         _ = check databaseClient->execute(deleteEmployeeEmergencyContactsAuditQuery(personalInfoId));
         _ = check databaseClient->execute(deleteEmployeeAuditQuery(employeePkId));
         _ = check databaseClient->execute(deletePersonalInfoAuditQuery(personalInfoId));
+        // `internship` references the employee row, so it goes first.
+        _ = check databaseClient->execute(deleteInternshipQuery(employeePkId));
         _ = check databaseClient->execute(deleteEmployeeQuery(employeeId));
         _ = check databaseClient->execute(deletePersonalInfoQuery(personalInfoId));
         check commit;

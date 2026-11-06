@@ -109,6 +109,8 @@ export interface CreateEmployeeFormValues {
   externalDesignation: string;
   houseId: number;
   employeeId?: string;
+  /** University an intern attends; only shown and sent for the Internship type. */
+  university: string;
   employeeStatus: EmployeeStatus | null;
   finalDayInOffice: string | null;
   finalDayOfEmployment: string | null;
@@ -149,6 +151,7 @@ export const emptyCreateEmployeeValues: CreateEmployeeFormValues = {
   startDate: "",
   probationEndDate: null,
   agreementEndDate: null,
+  university: "",
   isRelocation: false,
   continuousServiceRecord: null,
   managerEmail: "",

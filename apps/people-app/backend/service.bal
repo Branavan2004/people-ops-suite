@@ -3916,4 +3916,33 @@ service http:InterceptableService / on new http:Listener(9090) {
 
         return http:OK;
     }
+    # Universities already recorded for interns, most common first. Suggestions for the
+    # onboarding form's University field, which also accepts a name not in this list.
+    #
+    # + ctx - Request context
+    # + return - University names, or an error
+    resource function get universities(http:RequestContext ctx)
+        returns string[]|http:Forbidden|http:InternalServerError {
+
+        authorization:CustomJwtPayload|error userInfo = ctx.getWithType(authorization:HEADER_USER_INFO);
+        if userInfo is error {
+            return <http:InternalServerError>{
+                body: {message: ERROR_USER_INFORMATION_HEADER_NOT_FOUND}
+            };
+        }
+        if !authorization:checkPermissions([authorization:authorizedRoles.ADMIN_ROLE], userInfo.groups) {
+            log:printWarn("Unauthorized attempt to fetch universities", invokerEmail = userInfo.email);
+            return <http:Forbidden>{
+                body: {message: "You are not authorized to view universities"}
+            };
+        }
+        string[]|error universities = database:getUniversities();
+        if universities is error {
+            log:printError("Error fetching universities", universities);
+            return <http:InternalServerError>{
+                body: {message: "Error occurred while fetching universities."}
+            };
+        }
+        return universities;
+    }
 }

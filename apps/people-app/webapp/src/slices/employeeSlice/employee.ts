@@ -231,6 +231,8 @@ export type CreateEmployeePayload = {
   agreementEndDate?: string;
   employmentTypeId?: number;
   employeeId?: string;
+  /** Saved to the `internship` table; the backend ignores it unless the type is Internship. */
+  university?: string;
   designationId: number;
   companyId: number;
   officeId?: number;

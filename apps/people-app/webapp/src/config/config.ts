@@ -86,6 +86,7 @@ export const AppConfig = {
       SERVICE_BASE_URL + `/leadership-groups/${id}`,
     companies: SERVICE_BASE_URL + "/companies",
     employmentTypes: SERVICE_BASE_URL + "/employment-types",
+    universities: SERVICE_BASE_URL + "/universities",
     teams: SERVICE_BASE_URL + "/teams",
     team: (id: number) => SERVICE_BASE_URL + `/teams/${id}`,
     subTeams: SERVICE_BASE_URL + "/sub-teams",

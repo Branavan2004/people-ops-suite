@@ -851,6 +851,12 @@ public type Office record {|
     string location;
 |};
 
+# A university already recorded for an intern.
+type UniversityRow record {|
+    # University name
+    string university;
+|};
+
 # Employment type.
 public type EmploymentType record {|
     # ID of the employment type
@@ -1166,6 +1172,10 @@ public type CreateEmployeePayload record {|
     # Employee ID (required for fixed-term employment type)
     @constraint:String {maxLength: 50}
     string? employeeId = ();
+    # University an intern attends. Saved to `internship` only when the employment type is
+    # INTERNSHIP; ignored for every other type.
+    @constraint:String {maxLength: 200}
+    string? university = ();
     # Employee personal information
     CreatePersonalInfoPayload personalInfo;
 |};

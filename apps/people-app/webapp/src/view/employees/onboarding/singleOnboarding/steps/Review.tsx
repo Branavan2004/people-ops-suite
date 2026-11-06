@@ -493,6 +493,11 @@ export default function ReviewStep({ isEditMode }: ReviewStepProps) {
               value={formatDate(values.agreementEndDate)}
             />
           </Grid>
+          {/^internship$/i.test(mappedNames.employmentType?.trim() ?? "") ? (
+            <Grid item xs={12} sm={6} md={4}>
+              <ReviewField label="University" value={values.university || null} />
+            </Grid>
+          ) : null}
         </Grid>
       </Box>
 

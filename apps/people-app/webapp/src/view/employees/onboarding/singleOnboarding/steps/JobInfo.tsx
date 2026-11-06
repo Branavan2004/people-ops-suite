@@ -51,7 +51,7 @@ import {
   type ContinuousServiceRecordInfo,
   type ReturningEmployeeLookup,
 } from "@slices/employeeSlice/employee";
-import { EmployeeStatus } from "@/types/types";
+import { EmployeeStatus, State } from "@/types/types";
 import {
   RESIGNATION_DATE_ORDER_MESSAGE,
   isPlaceholderWorkEmail,
@@ -75,6 +75,7 @@ import {
   fetchOffices,
   fetchEmploymentTypes,
   fetchHouses,
+  fetchUniversities,
 } from "@slices/organizationSlice/organization";
 import { CreateEmployeeFormValues } from "@root/src/types/types";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
@@ -108,6 +109,10 @@ interface AddCustomReasonOption {
   addCustom: true;
   value: string;
 }
+
+// Select value for "Other (not in list)" in the University dropdown. Never saved:
+// choosing it clears the value and opens a box for the new university's name.
+const UNIVERSITY_OTHER = "__other__";
 
 const SECTION_ICONS = {
   badge: <BadgeOutlined />,
@@ -215,6 +220,9 @@ export const createJobInfoValidationSchema = (
     agreementEndDate: Yup.string()
       .transform((value) => (value === "" ? null : value))
       .nullable(),
+    university: Yup.string()
+      .trim()
+      .max(200, "University must be at most 200 characters"),
     managerEmail: Yup.string().required("Lead email is required"),
     additionalManagerEmail: Yup.array()
       .of(Yup.string().email("Invalid email format"))
@@ -635,6 +643,8 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
     offices,
     employmentTypes,
     houses,
+    universities,
+    universitiesState,
   } = useAppSelector((state) => state.organization);
 
   const [selectedRecordIndex, setSelectedRecordIndex] = useState<number | null>(
@@ -828,6 +838,40 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
     );
   }, [internshipTypeId, values.employmentTypeId]);
 
+  // University options are only needed once an intern is being onboarded.
+  useEffect(() => {
+    if (isInternship && universitiesState === State.idle) {
+      dispatch(fetchUniversities());
+    }
+  }, [dispatch, isInternship, universitiesState]);
+
+  // "Other" is chosen when the university is not in the list. A value typed under
+  // Other survives leaving and returning to this step, since only the value is in
+  // the form state: once the list has loaded, a value missing from it means Other.
+  const [universityIsOther, setUniversityIsOther] = useState(false);
+  useEffect(() => {
+    if (
+      universitiesState === State.success &&
+      values.university &&
+      !universities.includes(values.university)
+    ) {
+      setUniversityIsOther(true);
+    }
+  }, [universitiesState, universities, values.university]);
+
+  const handleUniversitySelect = useCallback(
+    (selected: string) => {
+      if (selected === UNIVERSITY_OTHER) {
+        setUniversityIsOther(true);
+        setFieldValue("university", "");
+        return;
+      }
+      setUniversityIsOther(false);
+      setFieldValue("university", selected);
+    },
+    [setFieldValue],
+  );
+
   const isLeaverStatus =
     values.employeeStatus === EmployeeStatus.Left ||
     values.employeeStatus === EmployeeStatus.MarkedLeaver;
@@ -981,6 +1025,8 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
         if (computed) setFieldValue("agreementEndDate", computed);
       } else {
         setInternshipDurationMonths(0);
+        setFieldValue("university", "");
+        setUniversityIsOther(false);
         if (isNewPermanent) setFieldValue("agreementEndDate", null);
         if (isNewConsultancy || isNewFixedTerm)
           setFieldValue("agreementEndDate", null);
@@ -1808,6 +1854,66 @@ export default function JobInfoStep({ isEditMode }: { isEditMode: boolean }) {
                   </MenuItem>
                 ))}
               </TextField>
+            </Grid>
+          ) : null}
+          {isInternship ? (
+            <Grid item xs={12} sm={6} md={3}>
+              {/* Pick a university already on record; "Other" opens a box for a new one. */}
+              <TextField
+                select
+                fullWidth
+                label="University"
+                name="university"
+                value={
+                  universityIsOther
+                    ? UNIVERSITY_OTHER
+                    : universities.includes(values.university)
+                      ? values.university
+                      : ""
+                }
+                onChange={(e) => handleUniversitySelect(e.target.value)}
+                onBlur={handleBlur}
+                disabled={universitiesState === State.loading}
+                helperText={
+                  universitiesState === State.loading
+                    ? "Loading universities..."
+                    : "Choose Other if it is not in the list"
+                }
+                sx={textFieldSx}
+                SelectProps={{ MenuProps: { PaperProps: { sx: { maxHeight: 360 } } } }}
+              >
+                <MenuItem value="">
+                  <em>Not specified</em>
+                </MenuItem>
+                {universities.map((u) => (
+                  <MenuItem key={u} value={u}>
+                    {u}
+                  </MenuItem>
+                ))}
+                <MenuItem value={UNIVERSITY_OTHER}>
+                  <em>Other (not in list)</em>
+                </MenuItem>
+              </TextField>
+            </Grid>
+          ) : null}
+          {isInternship && universityIsOther ? (
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="New University"
+                name="university"
+                placeholder="e.g. University of Moratuwa"
+                value={values.university ?? ""}
+                onChange={(e) => setFieldValue("university", e.target.value)}
+                onBlur={handleBlur}
+                error={Boolean(touched.university && errors.university)}
+                helperText={
+                  (touched.university && (errors.university as string)) ||
+                  "Full name, without the faculty"
+                }
+                inputProps={{ maxLength: 200 }}
+                sx={textFieldSx}
+              />
             </Grid>
           ) : null}
           {isFixedTerm ? (

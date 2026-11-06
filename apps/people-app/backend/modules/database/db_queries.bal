@@ -2409,6 +2409,39 @@ isolated function upsertResignationQuery(string employeeId, UpdateEmployeeJobInf
         updated_on              = CURRENT_TIMESTAMP(6)`;
 }
 
+# Insert the `internship` row for a newly created employee, only when that employee's
+# employment type is INTERNSHIP - for any other type nothing is inserted.
+#
+# + employeePkId - Primary key (`employee.id`) of the new employee
+# + university - University the intern attends
+# + createdBy - Creator of the record
+# + return - Query to add the internship row
+isolated function addInternshipQuery(int employeePkId, string university, string createdBy)
+    returns sql:ParameterizedQuery =>
+    `INSERT INTO internship (employee_id, university, created_by, updated_by)
+    SELECT e.id, ${university}, ${createdBy}, ${createdBy}
+    FROM employee e
+        INNER JOIN employment_type et ON et.id = e.employment_type_id
+    WHERE e.id = ${employeePkId} AND et.name = ${INTERNSHIP}`;
+
+# Get the universities already recorded for interns, one per name regardless of case or
+# surrounding spaces, most common first - the suggestions for the onboarding form.
+#
+# + return - Query to get the distinct university names
+isolated function getUniversitiesQuery() returns sql:ParameterizedQuery =>
+    `SELECT MIN(TRIM(university)) AS university
+    FROM internship
+    WHERE university IS NOT NULL AND TRIM(university) <> ''
+    GROUP BY LOWER(TRIM(university))
+    ORDER BY COUNT(*) DESC, university ASC`;
+
+# Delete an employee's `internship` row.
+#
+# + employeePkId - Primary key (`employee.id`) of the employee
+# + return - Query to delete the internship row
+isolated function deleteInternshipQuery(int employeePkId) returns sql:ParameterizedQuery =>
+    `DELETE FROM internship WHERE employee_id = ${employeePkId}`;
+
 # Add an additional manager for an employee.
 #
 # + id - Employee ID

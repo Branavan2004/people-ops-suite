@@ -96,6 +96,10 @@ export interface OrganizationState {
   offices: Office[];
   employmentTypes: EmploymentType[];
   houses: House[];
+  // Suggestions for an intern's University field. Tracked apart from `state`, so
+  // loading them never flips the whole slice to loading.
+  universities: string[];
+  universitiesState: State;
 }
 
 const initialState: OrganizationState = {
@@ -112,6 +116,8 @@ const initialState: OrganizationState = {
   offices: [],
   employmentTypes: [],
   houses: [],
+  universities: [],
+  universitiesState: State.idle,
 };
 
 interface FetchParams {
@@ -393,6 +399,36 @@ export const fetchOffices = createAsyncThunk(
 );
 
 // Fetch Employment Types
+export const fetchUniversities = createAsyncThunk(
+  "organization/fetchUniversities",
+  async (_, { dispatch, rejectWithValue }) => {
+    try {
+      const resp = await APIService.getInstance().get(
+        `${AppConfig.serviceUrls.universities}`,
+      );
+      if (!Array.isArray(resp.data)) {
+        throw new Error("Invalid response: universities should be an array");
+      }
+      return resp.data as string[];
+    } catch (error: any) {
+      if (isCancel(error)) return rejectWithValue("cancelled");
+      const errorMessage =
+        error.response?.status === HttpStatusCode.InternalServerError
+          ? "Error fetching universities"
+          : error.response?.data?.message ||
+            error.message ||
+            "An unknown error occurred while fetching universities.";
+      dispatch(
+        enqueueSnackbarMessage({
+          message: errorMessage,
+          type: "error",
+        }),
+      );
+      return rejectWithValue(errorMessage);
+    }
+  },
+);
+
 export const fetchEmploymentTypes = createAsyncThunk(
   "organization/fetchEmploymentTypes",
   async (_, { dispatch, rejectWithValue }) => {
@@ -477,6 +513,8 @@ export const organizationSlice = createSlice({
       state.offices = [];
       state.employmentTypes = [];
       state.houses = [];
+      state.universities = [];
+      state.universitiesState = State.idle;
     },
   },
   extraReducers: (builder) => {
@@ -609,6 +647,16 @@ export const organizationSlice = createSlice({
         state.state = State.failed;
         state.errorMessage = action.payload as string;
         state.stateMessage = null;
+      })
+      .addCase(fetchUniversities.pending, (state) => {
+        state.universitiesState = State.loading;
+      })
+      .addCase(fetchUniversities.fulfilled, (state, action) => {
+        state.universities = action.payload;
+        state.universitiesState = State.success;
+      })
+      .addCase(fetchUniversities.rejected, (state) => {
+        state.universitiesState = State.failed;
       })
       .addCase(fetchEmploymentTypes.pending, (state) => {
         state.state = State.loading;

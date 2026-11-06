@@ -751,6 +751,7 @@ export default function EmployeeForm({ mode }: EmployeeFormProps) {
                 businessUnitId: values.businessUnitId,
                 unitId: values.unitId > 0 ? values.unitId : undefined,
                 employeeId: values.employeeId?.trim() || undefined,
+                university: values.university?.trim() || undefined,
                 ...(values.isRelocation && values.continuousServiceRecord
                   ? { continuousServiceRecord: values.continuousServiceRecord }
                   : {}),
