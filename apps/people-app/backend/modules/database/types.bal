@@ -1330,7 +1330,7 @@ public type UpdateResignationPayload record {|
 
 # [Database] Intern profile record - sourced from `employee` (joined with
 # `personal_info`/`business_unit`/`team`/`sub_team`), plus university
-# from `internship` - see people_app_table_update_v1.4.1.sql.
+# from `internship` - see people_app_table_update_v1.4.2.sql.
 public type InternProfile record {|
     # Employee primary key (employee.id)
     int id;

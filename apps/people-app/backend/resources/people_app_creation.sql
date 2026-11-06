@@ -14,6 +14,7 @@ DROP TABLE IF EXISTS employee_leadership_audit;
 DROP TABLE IF EXISTS employee_leadership;
 DROP TABLE IF EXISTS leadership_group_audit;
 DROP TABLE IF EXISTS leadership_group;
+DROP TABLE IF EXISTS internship;
 DROP TABLE IF EXISTS employee;
 DROP TABLE IF EXISTS house;
 DROP TABLE IF EXISTS recruit;

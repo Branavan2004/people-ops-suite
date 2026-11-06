@@ -1,7 +1,7 @@
 [package]
 org = "wso2_open_operations"
 name = "people"
-version = "1.4.1"
+version = "1.4.2"
 distribution = "2201.12.7"
 
 [build-options]

@@ -50,6 +50,7 @@ import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import ArrowCircleRightIcon from "@mui/icons-material/ArrowCircleRight";
 import TimerIcon from "@mui/icons-material/Timer";
+import LogoutIcon from "@mui/icons-material/Logout";
 import SchoolIcon from "@mui/icons-material/School";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
@@ -71,9 +72,10 @@ import { useEmployeeHub } from "@hooks/useEmployeeHub";
 import { useEmployeeHubBootstrap } from "@hooks/useEmployeeHubBootstrap";
 import { useEmployeeHubColors, type EmployeeHubColors } from "@hooks/useEmployeeHubColors";
 import {
-  parseDate, isSameMonthAndYear, isPreviousMonthAndYear, getLastDayOfMonth, startOfDay,
+  parseDate, isSameMonthAndYear, startOfDay,
   formatDateToken as format, isDateToday as isToday, formatReadableDate,
 } from "@utils/employeeHub/dateHelpers";
+import { summariseInternMonth } from "@utils/employeeHub/internMonthSummary";
 import { isEndedStatus, getStatusDisplay } from "@utils/employeeHub/statusHelpers";
 import { resolveNameByEmail, buildEmailLookup, emailKey } from "@utils/employeeHub/internHelpers";
 import type { EmployeeRow, InternRow } from "@slices/employeeHubSlice/employeeHub";
@@ -86,26 +88,6 @@ type PersonModal = { title: string; subtitle: string } & (
   | { kind: "employees"; rows: EmployeeRow[] }
 );
 
-const useDateFilter = (interns: InternRow[] = [], selectedDateString: string) => {
-  return useMemo(() => {
-    const selectedDate = parseDate(selectedDateString) || new Date();
-    const lastDay = getLastDayOfMonth(selectedDate);
-
-    let prevMonthCount = 0, newJoinersCount = 0, accumulatedCount = 0, proceedingNextMonthCount = 0;
-
-    interns.forEach((intern) => {
-      const joined = parseDate(intern.joinedDate);
-      const end = parseDate(intern.endDate);
-
-      if (joined && isPreviousMonthAndYear(joined, selectedDate)) prevMonthCount++;
-      if (joined && isSameMonthAndYear(joined, selectedDate)) newJoinersCount++;
-      if (joined && end && joined <= selectedDate && end >= selectedDate) accumulatedCount++;
-      if (end && lastDay && end > lastDay) proceedingNextMonthCount++;
-    });
-
-    return { prevMonthCount, newJoinersCount, accumulatedCount, proceedingNextMonthCount };
-  }, [interns, selectedDateString]);
-};
 
 // Some source rows carry a literal "0" (or similar placeholder) in fields
 // like BU where the sheet was left blank and auto-filled by a formula -
@@ -701,28 +683,43 @@ const ExplorePanel = ({
 function CalendarDayCell(props: any) {
   const { day, joinDates, endDates, ...other } = props;
   const C = useEmployeeHubColors();
-  // `day` is a dayjs instance here (AdapterDayjs), while joinDates/endDates
-  // are plain JS Dates (from parseDate elsewhere in this file) - normalize
-  // to a native Date once, up front, rather than mixing both date APIs.
-  const jsDay: Date = day.toDate();
-  const isSameDay = (a: Date) => a.getFullYear() === jsDay.getFullYear() && a.getMonth() === jsDay.getMonth() && a.getDate() === jsDay.getDate();
-  const joined = (joinDates || []).some(isSameDay);
-  const ended = (endDates || []).some(isSameDay);
+  // The empty cells before the 1st and after the last day still render a
+  // (hidden) day of the next/previous month; a dot there would sit under a
+  // blank cell, so those days get none.
+  const hidden = other.outsideCurrentMonth && !other.showDaysOutsideCurrentMonth;
+  // joinDates/endDates are sets of "YYYY-MM-DD" keys, so each cell is a lookup.
+  const key = day.format("YYYY-MM-DD");
+  const joined = !hidden && joinDates?.has(key);
+  const ended = !hidden && endDates?.has(key);
+  const dots = [joined && C.teal, ended && C.red].filter(Boolean) as string[];
   return (
     <Box sx={{ position: "relative", display: "inline-flex" }}>
       <PickersDay {...other} day={day} />
-      {(joined || ended) && (
+      {dots.length > 0 && (
         <Box sx={{
           position: "absolute", bottom: 3, left: "50%", transform: "translateX(-50%)",
-          width: 4, height: 4, borderRadius: "50%", backgroundColor: ended ? C.red : C.teal,
-          pointerEvents: "none",
-        }} />
+          display: "flex", gap: "2px", pointerEvents: "none",
+        }}>
+          {dots.map((color) => (
+            <Box key={color} sx={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: color }} />
+          ))}
+        </Box>
       )}
     </Box>
   );
 }
 
+const dateKey = (d: Date | null): string | null => (d ? format(d, "yyyy-MM-dd") : null);
+
 const internHasEnded = (intern: InternRow) => isEndedStatus(intern.status);
+
+// An intern who left before their agreement end date is already Ended while that
+// date is still ahead; the internship will not end then, so it is not shown as
+// an upcoming end.
+const leftBeforeEndDate = (intern: InternRow, today: Date): boolean => {
+  const e = parseDate(intern.endDate);
+  return !!e && e >= today && internHasEnded(intern);
+};
 
 // Connected-stage strip: each stage is a proportional bar relative to the first.
 const FunnelStrip = ({ stages }: { stages: { label: string; value: number }[] }) => {
@@ -1075,8 +1072,9 @@ export default function EmployeeHubDashboard() {
     };
   }, [filteredInterns]);
 
-  const { prevMonthCount, newJoinersCount, accumulatedCount, proceedingNextMonthCount } =
-    useDateFilter(cleanInterns, format(date, "yyyy-MM-dd"));
+  // Month summary for the selected date's month, defined as on HR's Intern Count
+  // Summary sheet. The KPI cards and the lists they open share these arrays.
+  const internMonth = useMemo(() => summariseInternMonth(cleanInterns, date), [cleanInterns, date]);
 
   const empDateStats = useMemo(() => {
     let newHires = 0, hiredThisYear = 0, hiredThisQuarter = 0;
@@ -1105,51 +1103,24 @@ export default function EmployeeHubDashboard() {
   const consultantsEmp = useMemo(() => cleanEmployees.filter((e) => /consult/i.test(e.employmentType)), [cleanEmployees]);
 
 
-  // Date-only values parse to midnight, so comparisons against the selected
-  // day use its start rather than `date`, which carries the time of day.
-  const dayStart = useMemo(() => startOfDay(date), [date]);
-
-  const newJoinersListInterns = useMemo(() => cleanInterns.filter((i) => {
-    const j = parseDate(i.joinedDate);
-    return j && isSameMonthAndYear(j, date);
-  }), [cleanInterns, date]);
-
-
-  const prevMonthListInterns = useMemo(() => cleanInterns.filter((i) => {
-    const j = parseDate(i.joinedDate);
-    return j && isPreviousMonthAndYear(j, date);
-  }), [cleanInterns, date]);
-
-  const activeOnDateListInterns = useMemo(() => cleanInterns.filter((i) => {
-    const j = parseDate(i.joinedDate);
-    const e = parseDate(i.endDate);
-    return j && e && j <= dayStart && e >= dayStart;
-  }), [cleanInterns, dayStart]);
-
-  const proceedingListInterns = useMemo(() => {
-    const lastDay = getLastDayOfMonth(date);
-    return cleanInterns.filter((i) => {
-      const e = parseDate(i.endDate);
-      return e && lastDay && e > lastDay;
-    });
-  }, [cleanInterns, date]);
-
   const totalActiveListInterns = activeInterns;
 
-  const endingSoonList = useMemo(() => {
-    const soon = new Date(dayStart); soon.setDate(soon.getDate() + 30);
-    return activeInterns.filter((i) => { const e = parseDate(i.endDate); return e && e >= dayStart && e <= soon; });
-  }, [activeInterns, dayStart]);
 
 
   const calendarJoinDates = useMemo(() => {
     const dates = view === "interns" ? cleanInterns.map((i) => i.joinedDate) : cleanEmployees.map((e) => e.joinDate);
-    return dates.map(parseDate).filter(Boolean) as Date[];
+    return new Set(dates.map((d) => dateKey(parseDate(d))).filter(Boolean) as string[]);
   }, [view, cleanInterns, cleanEmployees]);
 
+  // Interns: every internship end date, past or upcoming, so the month being
+  // viewed shows who is finishing in it.
   const calendarEndDates = useMemo(() => {
-    if (view !== "interns") return departedEmployees.map(departureDate) as Date[];
-    return cleanInterns.filter(internHasEnded).map((i) => parseDate(i.endDate)).filter(Boolean) as Date[];
+    if (view !== "interns") return new Set(departedEmployees.map((e) => dateKey(departureDate(e))).filter(Boolean) as string[]);
+    const today = startOfDay(new Date());
+    return new Set(cleanInterns
+      .filter((i) => !leftBeforeEndDate(i, today))
+      .map((i) => dateKey(parseDate(i.endDate)))
+      .filter(Boolean) as string[]);
   }, [view, cleanInterns, departedEmployees]);
 
   const [calendarAnchor, setCalendarAnchor] = useState<HTMLElement | null>(null);
@@ -1164,13 +1135,15 @@ export default function EmployeeHubDashboard() {
     const dateLabel = format(d, "d MMM yyyy");
     if (view === "interns") {
       const joinedRows = cleanInterns.filter((i) => sameDay(parseDate(i.joinedDate)));
-      const endedRows = cleanInterns.filter((i) => internHasEnded(i) && sameDay(parseDate(i.endDate)));
+      const today = startOfDay(new Date());
+      const endedRows = cleanInterns.filter((i) => !leftBeforeEndDate(i, today) && sameDay(parseDate(i.endDate)));
+      const endVerb = d >= today ? "ending" : "ended";
       if (joinedRows.length && endedRows.length) {
-        setPersonModal({ title: "Activity on This Day", subtitle: `${dateLabel} · ${joinedRows.length} joined, ${endedRows.length} ended`, rows: [...joinedRows, ...endedRows], kind: "interns" });
+        setPersonModal({ title: "Activity on This Day", subtitle: `${dateLabel} · ${joinedRows.length} joined, ${endedRows.length} ${endVerb}`, rows: [...joinedRows, ...endedRows], kind: "interns" });
       } else if (joinedRows.length) {
         setPersonModal({ title: "Joined on This Day", subtitle: dateLabel, rows: joinedRows, kind: "interns" });
       } else if (endedRows.length) {
-        setPersonModal({ title: "Ended on This Day", subtitle: dateLabel, rows: endedRows, kind: "interns" });
+        setPersonModal({ title: d >= today ? "Ending on This Day" : "Ended on This Day", subtitle: dateLabel, rows: endedRows, kind: "interns" });
       }
     } else {
       const joinedRows = everyEmployee.filter((e) => sameDay(parseDate(e.joinDate)));
@@ -1202,7 +1175,9 @@ export default function EmployeeHubDashboard() {
       cleanInterns.forEach((intern) => {
         const j = parseDate(intern.joinedDate);
         const e = parseDate(intern.endDate);
-        if (j && j <= p.end && (!e || e >= p.start)) p.active++;
+        // No end date: active only while the intern is not Ended. Old records
+        // without one are all Left, and would otherwise count as active forever.
+        if (j && j <= p.end && (e ? e >= p.start : !internHasEnded(intern))) p.active++;
         if (j && j >= p.start && j <= p.end) p.intake++;
         if (internHasEnded(intern) && e && e >= p.start && e <= p.end) p.resignations++;
       });
@@ -1384,7 +1359,6 @@ export default function EmployeeHubDashboard() {
   const genderByTeamEmp = useMemo(() => genderByGroup(cleanEmployees, (e) => canonicalGroupKey(e.team)), [cleanEmployees]);
   const genderByLocationEmp = useMemo(() => genderByGroup(cleanEmployees, (e) => e.location), [cleanEmployees]);
 
-  const endingSoon = endingSoonList.length;
 
   const handleExport = () => {
     // escapeFormulae stops a cell starting with =, +, - or @ from running as a
@@ -1550,12 +1524,12 @@ export default function EmployeeHubDashboard() {
               {view === "interns" && (
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                   <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: C.red }} />
-                  <Typography sx={{ fontSize: "11px", color: C.muted }}>Ended</Typography>
+                  <Typography sx={{ fontSize: "11px", color: C.muted }}>Ends</Typography>
                 </Box>
               )}
             </Box>
             <Typography sx={{ fontSize: "10.5px", color: C.dim, px: 0.5, pt: 1 }}>
-              Click a day with a dot to see who joined{view === "interns" ? " or ended" : ""} that day.
+              Click a day with a dot to see who joined{view === "interns" ? " or finishes" : ""} that day.
             </Typography>
           </Popover>
         </Box>
@@ -1580,8 +1554,8 @@ export default function EmployeeHubDashboard() {
         stages={view === "interns" ? [
           { label: "Total Interns", value: cleanInterns.length },
           { label: "Active", value: activeInterns.length },
-          { label: "Joined This Month", value: newJoinersCount },
-          { label: "Ending in Next 30 Days", value: endingSoon },
+          { label: "Joining This Month", value: internMonth.joiningThisMonth.length },
+          { label: "Joining Next Month", value: internMonth.joiningNextMonth.length },
         ] : [
           { label: "Total Employees", value: cleanEmployees.length },
           { label: "Joined This Year", value: empDateStats.hiredThisYear },
@@ -1620,16 +1594,16 @@ export default function EmployeeHubDashboard() {
             <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 1.5 }}>
               <KPICard label="Current Interns" value={activeInterns.length} color={C.teal} icon={GroupsIcon}
                 onClick={() => setPersonModal({ title: "Current Interns", subtitle: "Interns working now", rows: totalActiveListInterns, kind: "interns" })} />
-              <KPICard label="Joined Last Month" value={prevMonthCount} color={C.text} icon={AccessTimeIcon}
-                onClick={() => setPersonModal({ title: "Joined Last Month", subtitle: format(date, "MMMM yyyy"), rows: prevMonthListInterns, kind: "interns" })} />
-              <KPICard label="Joined This Month" value={newJoinersCount} color={C.orange} icon={PersonAddIcon}
-                onClick={() => setPersonModal({ title: "Joined This Month", subtitle: format(date, "MMMM yyyy"), rows: newJoinersListInterns, kind: "interns" })} />
-              <KPICard label="Active on This Date" value={accumulatedCount} color={C.teal} icon={HowToRegIcon}
-                onClick={() => setPersonModal({ title: "Active on This Date", subtitle: format(date, "d MMM yyyy"), rows: activeOnDateListInterns, kind: "interns" })} />
-              <KPICard label="Continuing Next Month" value={proceedingNextMonthCount} color={C.text} icon={ArrowCircleRightIcon}
-                onClick={() => setPersonModal({ title: "Continuing Next Month", subtitle: format(date, "MMMM yyyy"), rows: proceedingListInterns, kind: "interns" })} />
-              <KPICard label="Ending in 30 Days" value={endingSoon} subtext="current interns finishing soon" color={C.orange} icon={TimerIcon}
-                onClick={() => setPersonModal({ title: "Ending in Next 30 Days", subtitle: `From ${format(date, "d MMM yyyy")}`, rows: endingSoonList, kind: "interns" })} />
+              <KPICard label="Joining This Month" value={internMonth.joiningThisMonth.length} color={C.orange} icon={PersonAddIcon}
+                onClick={() => setPersonModal({ title: "New Interns Joining This Month", subtitle: format(date, "MMMM yyyy"), rows: internMonth.joiningThisMonth, kind: "interns" })} />
+              <KPICard label="Accumulated" value={internMonth.accumulated.length} subtext="carried over + joining" color={C.teal} icon={HowToRegIcon}
+                onClick={() => setPersonModal({ title: "Accumulated Interns", subtitle: format(date, "MMMM yyyy"), rows: internMonth.accumulated, kind: "interns" })} />
+              <KPICard label="Leaving This Month" value={internMonth.leavingThisMonth.length} color={C.orange} icon={LogoutIcon}
+                onClick={() => setPersonModal({ title: "Interns Leaving This Month", subtitle: format(date, "MMMM yyyy"), rows: internMonth.leavingThisMonth, kind: "interns" })} />
+              <KPICard label="Proceeding to Next Month" value={internMonth.proceeding.length} color={C.text} icon={ArrowCircleRightIcon}
+                onClick={() => setPersonModal({ title: "Interns Proceeding to the Next Month", subtitle: format(date, "MMMM yyyy"), rows: internMonth.proceeding, kind: "interns" })} />
+              <KPICard label="Joining Next Month" value={internMonth.joiningNextMonth.length} subtext={format(new Date(date.getFullYear(), date.getMonth() + 1, 1), "MMMM yyyy")} color={C.teal} icon={PersonAddIcon}
+                onClick={() => setPersonModal({ title: "Interns Joining Next Month", subtitle: format(new Date(date.getFullYear(), date.getMonth() + 1, 1), "MMMM yyyy"), rows: internMonth.joiningNextMonth, kind: "interns" })} />
             </Box>
           ) : (
             <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 1.5 }}>
