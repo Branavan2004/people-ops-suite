@@ -18,19 +18,17 @@ export const SnackMessage = {
   success: {
     profileUpdated: "Profile updated successfully!",
     offerDeclined: "You declined the offer.",
-    feedbackSent: "Thank you for your feedback.",
     documentsSent: "Your documents were submitted.",
     documentsUpdated: "Your changes were saved.",
   },
   error: {
     fetchApplications: "Unable to retrieve your applications.",
     fetchProfile: "Unable to retrieve your profile.",
-    submitApplication: "Failed to submit application. Please try again.",
     saveProfile: "Unable to save your changes. Please try again.",
     respondToOffer: "Unable to record your response to the offer. Please try again.",
-    sendFeedback: "Unable to send your feedback. Please try again.",
     offerConflict: "This offer was already answered, or you have already accepted another offer.",
     offerExpired: "This offer has expired. Please contact the recruitment team if you still want to join.",
+    offerNotFound: "This offer is no longer available. Please contact the recruitment team.",
     fetchDocumentRequirements: "Unable to load the list of documents. Please try again.",
     submitDocuments: "Unable to submit your documents. Please try again.",
     sessionEndedOnSubmit: "Your session has ended. Please sign in again to submit your documents.",
@@ -45,14 +43,21 @@ export const SnackMessage = {
 // The names of the errors raised when the backend refuses an offer answer.
 export const OFFER_CONFLICT_ERROR = "OfferConflictError";
 export const OFFER_EXPIRED_ERROR = "OfferExpiredError";
-export const JOB_NOT_FOUND_ERROR = "JobNotFoundError";
+export const OFFER_NOT_FOUND_ERROR = "OfferNotFoundError";
+export const OFFER_INVALID_ERROR = "OfferInvalidError";
+
+// The first phase stops once a candidate has accepted or declined an offer, so the onboarding documents step is hidden.
+// Turn it on, together with the backend setting documentsEnabled, when that step opens.
+export const DOCUMENTS_SUBMISSION_ENABLED = false;
 
 export enum ApplicationStatus {
   Applied = "Applied",
   Screening = "Screening",
   Interview = "Interview",
+  Selected = "Selected",
   Offer = "Offer",
   OfferAccepted = "Offer Accepted",
   OfferDeclined = "Offer Declined",
+  OfferExpired = "Offer Expired",
   Rejected = "Rejected",
 }

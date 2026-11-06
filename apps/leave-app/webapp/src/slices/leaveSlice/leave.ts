@@ -26,6 +26,7 @@ import {
   LeaveSubmissionResponse,
   SingleLeaveHistory,
   State,
+  Status,
 } from "@/types/types";
 import { SnackMessage } from "@config/constant";
 import {
@@ -180,11 +181,11 @@ export const submitLeave = createAsyncThunk<
 // Async thunk for approving/rejecting a leave
 export const approveLeaveAction = createAsyncThunk<
   ApprovalResponse & { leaveId: string; action: Action },
-  { leaveId: string; action: Action },
+  { leaveId: string; action: Action; reason?: string },
   { rejectValue: string }
->("leave/approveLeave", async ({ leaveId, action }, { dispatch, rejectWithValue }) => {
+>("leave/approveLeave", async ({ leaveId, action, reason }, { dispatch, rejectWithValue }) => {
   try {
-    const response = await approveLeave(leaveId, action);
+    const response = await approveLeave(leaveId, action, reason);
     dispatch(
       enqueueSnackbarMessage({
         message:
@@ -256,7 +257,8 @@ const LeaveSlice = createSlice({
       })
       .addCase(cancelLeave.fulfilled, (state, action) => {
         state.cancellingLeaveId = null;
-        state.leaves = state.leaves.filter((leave) => leave.id !== action.payload);
+        const cancelled = state.leaves.find((leave) => leave.id === action.payload);
+        if (cancelled) cancelled.status = Status.CANCELLED;
       })
       .addCase(cancelLeave.rejected, (state) => {
         state.cancellingLeaveId = null;

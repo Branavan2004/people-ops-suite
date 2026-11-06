@@ -16,7 +16,24 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isValidEmail } from "@utils/email";
+import { emailFromLink, isValidEmail } from "@utils/email";
+
+describe("emailFromLink", () => {
+  it("gives back a plus the sender did not encode, which a link reader turns into a space", () => {
+    const params = new URLSearchParams("?email=name+tag@example.com");
+    expect(emailFromLink(params.get("email"))).toBe("name+tag@example.com");
+    expect(isValidEmail(emailFromLink(params.get("email")))).toBe(true);
+  });
+
+  it("keeps a plus the sender encoded as %2B", () => {
+    const params = new URLSearchParams("?email=name%2Btag@example.com");
+    expect(emailFromLink(params.get("email"))).toBe("name+tag@example.com");
+  });
+
+  it("is empty when the link has no email", () => {
+    expect(emailFromLink(null)).toBe("");
+  });
+});
 
 describe("isValidEmail", () => {
   it("accepts a normal address", () => {

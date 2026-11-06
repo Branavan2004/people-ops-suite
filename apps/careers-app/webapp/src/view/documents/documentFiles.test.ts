@@ -8,9 +8,8 @@ import { isSessionEnded, submitFailureMessage } from "@view/documents/documentFi
 
 // The config reads window.config when it loads, which does not exist in these tests.
 vi.mock("@config/config", () => ({
-  AppConfig: { serviceUrls: { candidates: "", jobs: "", applications: "", documents: "" } },
+  AppConfig: { serviceUrls: { candidates: "", applications: "", documents: "" } },
   ServiceBaseUrl: "",
-  UseMockProfile: false,
 }));
 
 const sessionEnded = () => Object.assign(new Error("Your session has ended."), { name: SESSION_EXPIRED_ERROR });

@@ -31,11 +31,22 @@ public function main() returns error? {
     if sabbaticalReminderResult is error {
         log:printError("Sabbatical reminder job failed", sabbaticalReminderResult);
     }
+
+    error? approvalReminderResult = runApprovalReminder();
+    if approvalReminderResult is error {
+        log:printError("Approval reminder job failed", approvalReminderResult);
+    }
+
+    error? sickNoteRetentionResult = runSickNoteRetention();
+    if sickNoteRetentionResult is error {
+        log:printError("Sick note retention job failed", sickNoteRetentionResult);
+    }
     // Future jobs are added here the same way: call the job's `run<JobName>()` function (defined in
     // functions.bal), log its error if any, and track it below — every job still runs even if an
     // earlier one failed.
 
-    if sabbaticalReminderResult is error {
+    if sabbaticalReminderResult is error || approvalReminderResult is error
+            || sickNoteRetentionResult is error {
         return error("One or more scheduled jobs failed — see logs for details");
     }
 }

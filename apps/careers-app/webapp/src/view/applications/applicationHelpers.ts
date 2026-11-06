@@ -14,22 +14,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { MapPin, Phone, Video } from "lucide-react";
+import { MapPin, Phone, Video } from "@wso2/oxygen-ui-icons-react";
 
 import type { Application, ApplicationInterview } from "@/types/types";
 import { BRAND_ORANGE, ON_ORANGE } from "@config/brand";
 import { ApplicationStatus } from "@config/constant";
 
 // The stages shown in the tracker.
-export const STAGES = ["Applied", "Screening", "Interview", "Offer"];
+export const STAGES = ["Applied", "Screening", "Interview", "Selected", "Offer"];
 
 const STAGE_INDEX: Partial<Record<ApplicationStatus, number>> = {
   [ApplicationStatus.Applied]: 0,
   [ApplicationStatus.Screening]: 1,
   [ApplicationStatus.Interview]: 2,
-  [ApplicationStatus.Offer]: 3,
-  [ApplicationStatus.OfferAccepted]: 3,
-  [ApplicationStatus.OfferDeclined]: 3,
+  [ApplicationStatus.Selected]: 3,
+  [ApplicationStatus.Offer]: 4,
+  [ApplicationStatus.OfferAccepted]: 4,
+  [ApplicationStatus.OfferDeclined]: 4,
+  [ApplicationStatus.OfferExpired]: 4,
 };
 
 // Parses a date, or null when invalid; a date without a time is a local day.
@@ -54,6 +56,11 @@ export const formatDateTime = (value: string) =>
 
 // The tracker's active step, and the step to mark as an error for a rejected application.
 export function trackerOf(application: Application): { activeStep: number; errorStep: number | null } {
+  // An offer that ran out is marked as an error on the Offer step, as a rejection is on the step it stopped at.
+  if (application.status === ApplicationStatus.OfferExpired) {
+    const offerStep = STAGE_INDEX[ApplicationStatus.OfferExpired] ?? 0;
+    return { activeStep: offerStep, errorStep: offerStep };
+  }
   if (application.status === ApplicationStatus.Rejected) {
     const reached = Math.max(0, ...(application.timeline ?? []).map((event) => STAGE_INDEX[event.stage] ?? 0));
     return { activeStep: reached, errorStep: reached };
@@ -72,9 +79,11 @@ export interface HistoryEntry {
 
 // Statuses that end the journey or answer the offer.
 const FINAL_STATUSES = [
+  ApplicationStatus.Selected,
   ApplicationStatus.Offer,
   ApplicationStatus.OfferAccepted,
   ApplicationStatus.OfferDeclined,
+  ApplicationStatus.OfferExpired,
   ApplicationStatus.Rejected,
 ];
 
@@ -102,7 +111,12 @@ export function historyOf(application: Application, interviews: ApplicationInter
       }),
     );
   if (FINAL_STATUSES.includes(status)) {
-    entries.push({ label: status, date: application.updatedDate ?? null, detail: "Current" });
+    // An expired offer is dated by its deadline, which is when it ran out.
+    const date =
+      status === ApplicationStatus.OfferExpired
+        ? (application.offerExpiresOn ?? application.updatedDate)
+        : application.updatedDate;
+    entries.push({ label: status, date: date ?? null, detail: "Current" });
   }
   return entries;
 }
@@ -110,24 +124,12 @@ export function historyOf(application: Application, interviews: ApplicationInter
 // Whether an offer is waiting for the candidate's answer.
 export const isOffer = (application: Application) => application.status === ApplicationStatus.Offer;
 
-const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-
-// The offer deadline with the days left.
-export function offerDeadlineOf(application: Application): { date: string; daysLeft: number } | null {
-  const end = application.offerExpiresOn ? parseDate(application.offerExpiresOn) : null;
-  if (!end) return null;
-  return {
-    date: formatDate(application.offerExpiresOn as string),
-    daysLeft: Math.round((startOfDay(end) - startOfDay(new Date())) / 86_400_000),
-  };
+// The offer deadline. It comes from the backend, so it is the same date as in the offer letter wherever the candidate is.
+export function offerDeadlineOf(application: Application): { date: string } | null {
+  if (!application.offerExpiresOn) return null;
+  const date = formatDate(application.offerExpiresOn);
+  return date === "-" ? null : { date };
 }
-
-// The days left to answer an offer, in words.
-export const daysLeftText = (daysLeft: number) => {
-  if (daysLeft < 0) return "expired";
-  if (daysLeft === 0) return "last day to respond";
-  return daysLeft === 1 ? "1 day left" : `${daysLeft} days left`;
-};
 
 type ApplicationTab = "active" | "offers" | "closed";
 
@@ -137,10 +139,12 @@ export type ApplicationFilter = "all" | ApplicationTab;
 // The list tab an application belongs under.
 export const tabOf = (application: Application): ApplicationTab => {
   switch (application.status) {
+    case ApplicationStatus.Selected:
     case ApplicationStatus.Offer:
     case ApplicationStatus.OfferAccepted:
       return "offers";
     case ApplicationStatus.OfferDeclined:
+    case ApplicationStatus.OfferExpired:
     case ApplicationStatus.Rejected:
       return "closed";
     default:
@@ -190,12 +194,18 @@ export function nextStepOf(application: Application, interviews: ApplicationInte
         ? `Next: ${upcoming.round} · ${formatDateTime(upcoming.dateTime)}`
         : "Waiting for the interview outcome";
     }
+    case ApplicationStatus.Selected:
+      return "You have been selected for this position. Your offer letter will be sent to you soon.";
     case ApplicationStatus.Offer:
-      return "An offer has been sent to your email. Please check your inbox.";
+      return application.offerEmailSubject
+        ? `Your offer was emailed to you with the subject "${application.offerEmailSubject}".`
+        : "An offer has been sent to your email. Please check your inbox.";
     case ApplicationStatus.OfferAccepted:
       return "You accepted the offer. The hiring team will contact you with the next steps.";
     case ApplicationStatus.OfferDeclined:
       return "You declined the offer";
+    case ApplicationStatus.OfferExpired:
+      return "The offer has expired. Please contact HR if you still want to join.";
     case ApplicationStatus.Rejected:
       return "Not selected for this position";
     default:

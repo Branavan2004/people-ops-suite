@@ -14,7 +14,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import "@fontsource-variable/inter";
 import ReactDOM from "react-dom/client";
 
 import App from "./App";

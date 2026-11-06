@@ -150,6 +150,22 @@ public type LeavePayload record {|
     *database:LeavePayload;
 |};
 
+# Body of `POST /leaves/sick-leave`: the leave and its sick note, sent together to submit sick leave in France.
+type SickLeaveRequest record {|
+    # The leave, as sent to `POST /leaves`
+    LeavePayload leave;
+    # The sick note file (PDF, JPG or PNG) as base64 text, without a `data:` prefix
+    string sickNote;
+|};
+
+# A sick leave request once its sick note is decoded.
+type SickLeaveSubmission record {|
+    # The leave, as sent to `POST /leaves`
+    LeavePayload leave;
+    # The sick note file. Empty when the request sends an empty sick note
+    byte[] sickNote;
+|};
+
 # Payload for recording leave on behalf of another employee.
 #
 # Carries the same fields as a self-service leave so the notification, calendar
@@ -295,6 +311,10 @@ public type AppConfig record {|
     # leave-type options on the admin recording screen, so widening the
     # configuration needs no UI change.
     database:LeaveType[] onBehalfAllowedLeaveTypes;
+    # Largest sick note accepted, in bytes
+    int sickNoteMaxBytes;
+    # Content types accepted for a sick note
+    string[] sickNoteContentTypes;
 |};
 
 # Sabbatical Leave Response.
@@ -317,6 +337,12 @@ public type SabbaticalLeaveEligibilityResponse record {|
     string lastSabbaticalLeaveEndDate;
     # Is eligible for sabbatical leave
     boolean isEligible;
+|};
+
+# Payload for approving or rejecting a leave request.
+public type DecisionPayload record {|
+    # Reason for the rejection. Required to reject Other Authorized Leave; not used otherwise
+    string? reason = ();
 |};
 
 # APPROVE/REJECT Action enum.

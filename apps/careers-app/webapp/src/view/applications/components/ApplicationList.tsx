@@ -13,9 +13,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-import { AssignmentOutlined } from "@mui/icons-material";
-import { Button, Card, CardContent, Grid, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Button, Card, CardContent, Grid, Stack, Tab, Tabs, Typography } from "@wso2/oxygen-ui";
+import { ClipboardList } from "@wso2/oxygen-ui-icons-react";
 
 import { useState } from "react";
 
@@ -30,6 +29,8 @@ import ApplicationListCard from "@view/applications/components/ApplicationListCa
 interface ApplicationListProps {
   applications: Application[];
   applicationsState: State;
+  // The email the candidate signed in with, which the applications are found by.
+  signedInEmail?: string;
   onView: (applicationId: string) => void;
   onBrowseJobs: () => void;
   onRetry: () => void;
@@ -43,7 +44,14 @@ const TABS: { key: ApplicationFilter; label: string }[] = [
 ];
 
 // The applications list with its loading, failed and empty states, tabs and cards.
-const ApplicationList = ({ applications, applicationsState, onView, onBrowseJobs, onRetry }: ApplicationListProps) => {
+const ApplicationList = ({
+  applications,
+  applicationsState,
+  signedInEmail,
+  onView,
+  onBrowseJobs,
+  onRetry,
+}: ApplicationListProps) => {
   // The tab the candidate picked; the default one until then.
   const [chosenTab, setChosenTab] = useState<ApplicationFilter | null>(null);
   const tab = chosenTab ?? defaultTabOf(applications);
@@ -70,49 +78,62 @@ const ApplicationList = ({ applications, applicationsState, onView, onBrowseJobs
       {applicationsState === State.success && applications.length === 0 ? (
         <Card elevation={0} sx={cardSx}>
           <CardContent sx={{ py: 8, textAlign: "center" }}>
-            <AssignmentOutlined sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
+            <ClipboardList size={48} style={{ marginBottom: 16, opacity: 0.4 }} />
             <Typography variant="h6" fontWeight={600} mb={1} color="text.primary">
-              No Applications Yet
+              No Applications Found
             </Typography>
             <Typography color="text.secondary" mb={3} fontSize="0.9rem">
-              You haven&apos;t applied to any positions. Start exploring open roles!
+              {signedInEmail
+                ? `We could not find an application for ${signedInEmail}. Sign in with the email you applied with, or apply for a position.`
+                : "We could not find an application. Sign in with the email you applied with, or apply for a position."}
             </Typography>
             <Button variant="contained" onClick={onBrowseJobs}>
-              Browse Jobs
+              Browse jobs
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <>
-          <Tabs
-            value={tab}
-            onChange={(_, value: ApplicationFilter) => setChosenTab(value)}
-            sx={{
-              mb: 3,
-              borderBottom: "1px solid",
-              borderColor: "divider",
-              "& .MuiTabs-indicator": { backgroundColor: "primary.main" },
-              "& .MuiTab-root": { textTransform: "none", fontSize: "1rem", fontWeight: 500, color: "text.secondary" },
-              "& .MuiTab-root.Mui-selected": { color: "text.primary" },
-            }}
-          >
-            {TABS.map((t) => (
-              <Tab key={t.key} value={t.key} label={`${t.label} (${countOf(t.key)})`} />
-            ))}
-          </Tabs>
-
-          {visible.length === 0 ? (
-            <Typography color="text.secondary">No applications in this tab.</Typography>
-          ) : (
-            <Grid container spacing={3}>
-              {visible.map((application) => (
-                <Grid key={application.id} size={{ xs: 12, sm: 6, md: 4 }}>
-                  <ApplicationListCard application={application} onView={() => onView(application.id)} />
-                </Grid>
+        // Nothing to sort while the list is loading or failed, so the tabs wait until there are applications.
+        applications.length > 0 && (
+          <>
+            <Tabs
+              value={tab}
+              onChange={(_, value: ApplicationFilter) => setChosenTab(value)}
+              sx={{
+                mb: 3,
+                borderBottom: "1px solid",
+                borderColor: "divider",
+                "& .MuiTabs-indicator": { backgroundColor: "primary.main" },
+                "& .MuiTab-root": {
+                  textTransform: "none",
+                  fontSize: "1rem",
+                  fontWeight: 500,
+                  color: "text.secondary",
+                },
+                "& .MuiTab-root.Mui-selected": { color: "text.primary" },
+              }}
+            >
+              {TABS.map((t) => (
+                <Tab key={t.key} value={t.key} label={`${t.label} (${countOf(t.key)})`} />
               ))}
-            </Grid>
-          )}
-        </>
+            </Tabs>
+
+            {visible.length === 0 ? (
+              <Typography color="text.secondary">No applications in this tab.</Typography>
+            ) : (
+              <Grid container spacing={3}>
+                {visible.map((application) => (
+                  <Grid key={application.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                    <ApplicationListCard
+                      application={application}
+                      onView={() => onView(application.id)}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </>
+        )
       )}
     </>
   );

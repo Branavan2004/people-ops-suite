@@ -15,6 +15,7 @@
 // under the License.
 
 import leave_scheduler.database;
+import leave_scheduler.dates;
 import leave_scheduler.email;
 import leave_scheduler.employee;
 
@@ -23,6 +24,18 @@ import ballerina/time;
 
 # How many days before a sabbatical starts its lead is reminded.
 configurable int sabbaticalReminderLeadTimeInDays = 28;
+
+# How many days after submission a pending Other Authorized Leave gets its first approval reminder (at least 1).
+configurable int approvalReminderFirstDelayInDays = ?;
+
+# How many days after a reminder a still-pending Other Authorized Leave gets the next one (at least 1).
+configurable int approvalReminderIntervalInDays = ?;
+
+# How many days after a leave ends its sick note is deleted (at least 1).
+configurable int sickNoteRetentionInDays = ?;
+
+# Leave App page where a lead approves leaves; linked from the approval reminder.
+configurable string approvalPageUrl = ?;
 
 # Run the sabbatical reminder job: email the employee's current lead (from the HR entity service) about every
 # approved sabbatical leave starting within the reminder window that has not had its reminder yet, then record
@@ -107,4 +120,119 @@ function sendReminder(database:SabbaticalReminder reminder) returns error? {
     }
     check database:markSabbaticalReminderSent(reminder.id);
     log:printInfo("Sabbatical reminder sent", leaveId = reminder.id);
+}
+
+# Run the approval reminder job: remind the applicant's current lead (from the HR entity service) about every
+# Other Authorized Leave still pending approval, first once it has waited `approvalReminderFirstDelayInDays`
+# and then every `approvalReminderIntervalInDays`, recording each reminder as sent. One failed leave does not
+# stop the others; the job reports an error at the end so the run visibly shows as failed, and the failed
+# leaves are retried on the next run.
+#
+# + return - Error if the settings are invalid, the leaves could not be read, or any reminder failed
+function runApprovalReminder() returns error? {
+    check dates:requireAtLeastOne("approvalReminderFirstDelayInDays", approvalReminderFirstDelayInDays);
+    check dates:requireAtLeastOne("approvalReminderIntervalInDays", approvalReminderIntervalInDays);
+    if approvalPageUrl.trim() == "" {
+        return error("approvalPageUrl must be set");
+    }
+
+    string today = time:utcToString(time:utcNow()).substring(0, 10);
+    string firstCutoff = check dates:subtractDays(today, approvalReminderFirstDelayInDays);
+    string repeatCutoff = check dates:subtractDays(today, approvalReminderIntervalInDays);
+    log:printInfo("Approval reminder run started", today = today, firstCutoff = firstCutoff,
+            repeatCutoff = repeatCutoff, isDebug = email:isDebugMode());
+
+    database:ApprovalReminder[] reminders = check database:getDueApprovalReminders(firstCutoff, repeatCutoff);
+    log:printInfo("Pending leaves due for an approval reminder", count = reminders.length());
+
+    int failed = 0;
+    foreach database:ApprovalReminder reminder in reminders {
+        error? result = sendApprovalReminderFor(reminder, today);
+        if result is error {
+            failed += 1;
+            log:printError("Failed to send approval reminder", result, leaveId = reminder.id);
+        }
+    }
+
+    log:printInfo("Approval reminder run completed", sent = reminders.length() - failed, failed = failed);
+    if failed > 0 {
+        return error(string `${failed} approval reminder(s) failed — see logs for details`);
+    }
+}
+
+# Send the approval reminder for one pending leave and record it as sent. The reminder goes only to the
+# applicant's current lead in HR; when HR has no lead for the applicant, or no longer has the applicant (for
+# example after they left), People Operations is alerted instead.
+#
+# + reminder - Leave due for a reminder
+# + today - Today's date (yyyy-mm-dd)
+# + return - Error if HR could not be reached, or the email could not be sent or recorded
+function sendApprovalReminderFor(database:ApprovalReminder reminder, string today) returns error? {
+    // Without HR there is no way to tell the current lead (the lead recorded on the leave may no longer be
+    // one), so an HR error fails the leave and it is retried on the next run. An applicant HR no longer has is
+    // treated like one with no lead, so the alert reaches People Operations instead of failing every run.
+    employee:Employee|error employeeInfo = employee:getEmployee(reminder.email);
+    if employeeInfo is error && employeeInfo !is employee:EmployeeNotFoundError {
+        return employeeInfo;
+    }
+    string employeeName = employeeInfo is employee:Employee
+        ? employee:fullName(employeeInfo, reminder.email) : reminder.email;
+    int daysWaiting = check dates:daysBetween(reminder.createdOn, today);
+
+    string? leadEmail = employeeInfo is employee:Employee ? employee:leadEmail(employeeInfo) : ();
+    if leadEmail is () {
+        log:printWarn(employeeInfo is employee:Employee
+                ? "No lead recorded in HR, alerting People Operations"
+                : "Employee not found in HR, alerting People Operations", leaveId = reminder.id);
+        check email:sendNoLeadAlert({
+            employeeName,
+            employeeEmail: reminder.email,
+            startDate: reminder.startDate,
+            endDate: reminder.endDate,
+            daysWaiting
+        });
+    } else {
+        employee:Employee|error leadInfo = employee:getEmployee(leadEmail);
+        if leadInfo is error {
+            log:printWarn("Could not fetch the lead from HR, greeting them by email", leadInfo,
+                    leaveId = reminder.id);
+        }
+        check email:sendApprovalReminder({
+            employeeName,
+            leadEmail,
+            leadName: leadInfo is employee:Employee ? employee:firstName(leadInfo, leadEmail) : leadEmail,
+            startDate: reminder.startDate,
+            endDate: reminder.endDate,
+            numberOfDays: reminder.numberOfDays,
+            daysWaiting,
+            hasStarted: reminder.startDate <= today,
+            approvalUrl: approvalPageUrl
+        });
+    }
+
+    // A debug run only reaches the debug recipients, so it must not use up the real reminder.
+    boolean isDebugMode = email:isDebugMode();
+    if isDebugMode {
+        log:printInfo("Debug mode: approval reminder sent to debug recipients, not marked as sent",
+                leaveId = reminder.id);
+        return;
+    }
+    check database:markApprovalReminderSent(reminder.id);
+    log:printInfo("Approval reminder sent", leaveId = reminder.id);
+}
+
+# Run the sick note retention job: clear the encrypted content of sick notes whose leave ended more than
+# `sickNoteRetentionInDays` days ago, and of cancelled leaves. The rows are kept so the history can still say a
+# note was provided and deleted. The job never needs the encryption key. Debug mode does not skip the deletion.
+#
+# + return - Error if the setting is invalid or the sick notes could not be cleared
+function runSickNoteRetention() returns error? {
+    check dates:requireAtLeastOne("sickNoteRetentionInDays", sickNoteRetentionInDays);
+
+    string today = time:utcToString(time:utcNow()).substring(0, 10);
+    string endedBefore = check dates:subtractDays(today, sickNoteRetentionInDays);
+    log:printInfo("Sick note retention run started", today = today, endedBefore = endedBefore);
+
+    int deleted = check database:deleteExpiredSickNotes(endedBefore);
+    log:printInfo("Sick note retention run completed", deleted = deleted);
 }

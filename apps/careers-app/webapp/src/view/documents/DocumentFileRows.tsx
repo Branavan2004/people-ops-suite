@@ -14,13 +14,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Button, Chip, Link, Stack, Typography } from "@mui/material";
-import { styled } from "@mui/material/styles";
-import { FileUp, Trash2 } from "lucide-react";
+import { Box, IconButton, Link, Stack, Tooltip, Typography, styled } from "@wso2/oxygen-ui";
+import { FileUp, Trash2 } from "@wso2/oxygen-ui-icons-react";
 
 import type { DocumentRequirement } from "@/types/types";
-import { pillButtonSx } from "@utils/styles";
-import { STATUS_COLORS, extensionsOf, formatSize, formatsText, statusOf } from "@view/documents/documentFiles";
+import { extensionsOf, formatSize, formatsText, statusOf } from "@view/documents/documentFiles";
+import { StatusTag } from "@view/documents/FormInputs";
 
 // A file input that stays in the tab order and the accessibility tree while being invisible; the button around it shows
 // its focus.
@@ -35,6 +34,9 @@ const VisuallyHiddenInput = styled("input")({
   whiteSpace: "nowrap",
   width: 1,
 });
+
+// The round outlined look of the upload and remove buttons, which show an icon only.
+const iconButtonSx = { width: 40, height: 40, border: "1px solid", flexShrink: 0 } as const;
 
 // The hint, with any web address in it shown as a link that opens in a new tab.
 const hintContent = (hint: string) =>
@@ -78,9 +80,13 @@ const DocumentFileRows = ({ documents, files, sentKeys, problems, submitting, on
             <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
               <Typography fontWeight={600} fontSize="0.95rem" color="text.primary">
                 {document.label}
+                {document.required && (
+                  <Box component="span" aria-hidden sx={{ color: "error.main", ml: 0.5 }}>
+                    *
+                  </Box>
+                )}
               </Typography>
-              <Chip size="small" variant="outlined" color={STATUS_COLORS[documentStatus]} label={documentStatus} />
-              {!document.required && <Chip size="small" variant="outlined" label="Optional" />}
+              <StatusTag status={documentStatus} />
             </Stack>
             <Typography fontSize="0.8rem" color="text.secondary">
               {formatsText(document.types)}
@@ -99,39 +105,50 @@ const DocumentFileRows = ({ documents, files, sentKeys, problems, submitting, on
           </Box>
 
           {file ? (
-            <Button
-              startIcon={<Trash2 size={16} />}
-              onClick={() => onRemove(document.key)}
-              disabled={submitting}
-              sx={{ fontWeight: 600 }}
-            >
-              Remove
-            </Button>
+            <Tooltip title="Remove" arrow disableInteractive>
+              <span>
+                <IconButton
+                  aria-label={`Remove ${document.label}`}
+                  onClick={() => onRemove(document.key)}
+                  disabled={submitting}
+                  sx={{ ...iconButtonSx, color: "text.secondary", borderColor: "divider" }}
+                >
+                  <Trash2 size={18} />
+                </IconButton>
+              </span>
+            </Tooltip>
           ) : (
-            <Button
-              component="label"
-              role={undefined}
-              tabIndex={-1}
-              variant="outlined"
-              startIcon={<FileUp size={16} />}
-              disabled={submitting}
-              sx={{ ...pillButtonSx, "&:focus-within": { outline: "2px solid", outlineOffset: 2, outlineColor: "primary.main" } }}
-            >
-              {sentEarlier ? "Replace" : "Upload"}
-              <VisuallyHiddenInput
-                type="file"
-                disabled={submitting}
-                aria-label={`${sentEarlier ? "Replace" : "Upload"} ${document.label}`}
-                accept={extensionsOf(document.types)
-                  .map((extension) => `.${extension}`)
-                  .join(",")}
-                onChange={(event) => {
-                  onChoose(document.key, event.target.files?.[0]);
-                  // Lets the same file be chosen again after it was removed.
-                  event.target.value = "";
-                }}
-              />
-            </Button>
+            <Tooltip title={sentEarlier ? "Replace" : "Upload"} arrow disableInteractive>
+              <span>
+                <IconButton
+                  component="label"
+                  role={undefined}
+                  tabIndex={-1}
+                  disabled={submitting}
+                  sx={{
+                    ...iconButtonSx,
+                    color: "primary.main",
+                    borderColor: "primary.main",
+                    "&:focus-within": { outline: "2px solid", outlineOffset: 2, outlineColor: "primary.main" },
+                  }}
+                >
+                  <FileUp size={18} />
+                  <VisuallyHiddenInput
+                    type="file"
+                    disabled={submitting}
+                    aria-label={`${sentEarlier ? "Replace" : "Upload"} ${document.label}`}
+                    accept={extensionsOf(document.types)
+                      .map((extension) => `.${extension}`)
+                      .join(",")}
+                    onChange={(event) => {
+                      onChoose(document.key, event.target.files?.[0]);
+                      // Lets the same file be chosen again after it was removed.
+                      event.target.value = "";
+                    }}
+                  />
+                </IconButton>
+              </span>
+            </Tooltip>
           )}
         </Stack>
       );

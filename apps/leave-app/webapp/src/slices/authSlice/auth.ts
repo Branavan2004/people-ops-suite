@@ -27,6 +27,7 @@ export enum Role {
   INTERN = "INTERN",
   LEAD = "LEAD",
   PEOPLE_OPS_TEAM = "PEOPLE_OPS_TEAM",
+  SICK_NOTE_READER = "SICK_NOTE_READER",
 }
 
 export enum Privileges {
@@ -34,6 +35,7 @@ export enum Privileges {
   INTERN = 678,
   LEAD = 879,
   PEOPLE_OPS_TEAM = 789,
+  SICK_NOTE_READER = 321,
 }
 
 // Custom extended interface
@@ -115,6 +117,9 @@ export const loadPrivileges = createAsyncThunk(
     }
     if (userPrivileges.includes(Privileges.PEOPLE_OPS_TEAM)) {
       roles.push(Role.PEOPLE_OPS_TEAM);
+    }
+    if (userPrivileges.includes(Privileges.SICK_NOTE_READER)) {
+      roles.push(Role.SICK_NOTE_READER);
     }
 
     if (roles.length === 0) {

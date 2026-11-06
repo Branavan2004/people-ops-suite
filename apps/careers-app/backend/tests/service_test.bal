@@ -17,15 +17,9 @@
 import wso2/careers_app.jwt;
 
 import ballerina/http;
-import ballerina/mime;
 import ballerina/test;
 
-final http:Client testClient = check new (string `http://localhost:${port}`);
-
-// A client that always declares the length of its body, as a browser does. The public apply route refuses a body that
-// does not.
-final http:Client sizedClient = check new (string `http://localhost:${port}`,
-    http1Settings = {chunking: http:CHUNKING_NEVER});
+final http:Client testClient = check new ("http://localhost:9090");
 
 @test:Config {}
 function aDeclaredBodySizeIsComparedWithTheLimit() {
@@ -35,14 +29,6 @@ function aDeclaredBodySizeIsComparedWithTheLimit() {
     test:assertFalse(exceeds(req, 100));
     http:Request undeclared = new;
     test:assertFalse(exceeds(undeclared, 50));
-}
-
-@test:Config {}
-function aRequestIsKnownToDeclareItsBodyLengthOrNot() {
-    http:Request declared = new;
-    declared.setHeader(http:CONTENT_LENGTH, "10");
-    test:assertTrue(declaresLength(declared));
-    test:assertFalse(declaresLength(new));
 }
 
 // "/profile" stands in for any restricted route.
@@ -59,81 +45,13 @@ function restrictedRouteWithGarbageTokenIsUnauthorized() returns error? {
 }
 
 @test:Config {}
-function routesNotListedAsPublicNeedAToken() returns error? {
-    http:Response saved = check testClient->get("/jobs/saved");
-    test:assertEquals(saved.statusCode, 401);
-    http:Response traversal = check testClient->get("/jobs/..%2Forg-structure");
-    test:assertEquals(traversal.statusCode, 401);
-    http:Response applyToTraversal = check testClient->post("/jobs/..%2Forg-structure/apply", {});
-    test:assertEquals(applyToTraversal.statusCode, 401);
-}
-
-@test:Config {}
-function publicJobReadsReachTheServiceWithoutAToken() returns error? {
-    // No ATS runs in the tests, so a request that passes the interceptor ends in a 504.
+function theRemovedJobRoutesNeedAToken() returns error? {
     http:Response list = check testClient->get("/jobs");
-    test:assertEquals(list.statusCode, 504);
+    test:assertEquals(list.statusCode, 401);
     http:Response detail = check testClient->get("/jobs/258");
-    test:assertEquals(detail.statusCode, 504);
-}
-
-@test:Config {}
-function applyWithoutMultipartFormIsBadRequest() returns error? {
-    http:Request req = new;
-    req.setTextPayload("firstName=A", "application/x-www-form-urlencoded");
-    req.setHeader(http:CONTENT_LENGTH, "11");
-    http:Response resp = check sizedClient->post("/jobs/258/apply", req);
-    test:assertEquals(resp.statusCode, 400);
-}
-
-@test:Config {}
-function applyWithAnInvalidFormShowsTheReason() returns error? {
-    mime:Entity firstName = new;
-    firstName.setContentDisposition(mime:getContentDispositionObject("form-data; name=\"firstName\""));
-    firstName.setText("Ada");
-    http:Request req = new;
-    req.setBodyParts([firstName], "multipart/form-data");
-    http:Response resp = check sizedClient->post("/jobs/258/apply", req);
-    test:assertEquals(resp.statusCode, 400);
-    json body = check resp.getJsonPayload();
-    test:assertEquals(check body.message, "First name, last name, phone and address are required.");
-}
-
-function responseWithStatus(int statusCode) returns http:Response {
-    http:Response resp = new;
-    resp.statusCode = statusCode;
-    return resp;
-}
-
-@test:Config {}
-function upstreamJsonIsPassedThrough() {
-    http:Response resp = responseWithStatus(200);
-    resp.setJsonPayload({"id": 258});
-    test:assertEquals(forwardOrError(resp, "failed", "test-request"), {"id": 258});
-}
-
-@test:Config {}
-function unreachableUpstreamBecomesGatewayTimeout() {
-    test:assertTrue(forwardOrError(error("connection refused"), "failed", "test-request") is http:GatewayTimeout);
-}
-
-@test:Config {}
-function upstreamUnavailableOrTimedOutBecomesGatewayTimeout() {
-    test:assertTrue(forwardOrError(responseWithStatus(503), "failed", "test-request") is http:GatewayTimeout);
-    test:assertTrue(forwardOrError(responseWithStatus(504), "failed", "test-request") is http:GatewayTimeout);
-}
-
-@test:Config {}
-function otherUpstreamFailuresBecomeBadGateway() {
-    test:assertTrue(forwardOrError(responseWithStatus(500), "failed", "test-request") is http:BadGateway);
-    test:assertTrue(forwardOrError(responseWithStatus(401), "failed", "test-request") is http:BadGateway);
-}
-
-@test:Config {}
-function nonJsonUpstreamBodyBecomesBadGateway() {
-    http:Response resp = responseWithStatus(200);
-    resp.setTextPayload("not json", "text/plain");
-    test:assertTrue(forwardOrError(resp, "failed", "test-request") is http:BadGateway);
+    test:assertEquals(detail.statusCode, 401);
+    http:Response apply = check testClient->post("/jobs/258/apply", {});
+    test:assertEquals(apply.statusCode, 401);
 }
 
 @test:Config {}

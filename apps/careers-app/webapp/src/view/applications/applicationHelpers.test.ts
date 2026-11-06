@@ -14,59 +14,45 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Application, ApplicationInterview } from "@/types/types";
 import { ApplicationStatus } from "@config/constant";
-import { daysLeftText, defaultTabOf, historyOf, offerDeadlineOf, tabOf, trackerOf } from "@view/applications/applicationHelpers";
+import {
+  defaultTabOf,
+  historyOf,
+  nextStepOf,
+  offerDeadlineOf,
+  tabOf,
+  trackerOf,
+} from "@view/applications/applicationHelpers";
 
 const application = (overrides: Partial<Application> = {}): Application => ({
   id: "a1",
   jobId: "1",
   jobTitle: "Site Reliability Engineer",
-  department: "Engineering",
   appliedDate: "2026-09-01",
   status: ApplicationStatus.Applied,
   ...overrides,
 });
 
-describe("offerDeadlineOf and daysLeftText", () => {
-  // Noon on 19 Oct in the machine's own time zone, so the results do not depend on where the tests run.
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 9, 19, 12));
-  });
-  afterEach(() => vi.useRealTimers());
-
-  const daysLeftFor = (offerExpiresOn: string) => offerDeadlineOf(application({ offerExpiresOn }))?.daysLeft;
-
-  it("counts the last day as 0 days left", () => {
-    expect(daysLeftFor("2026-10-19")).toBe(0);
-    expect(daysLeftText(0)).toBe("last day to respond");
-  });
-
-  it("counts the day after as expired", () => {
-    expect(daysLeftFor("2026-10-18")).toBe(-1);
-    expect(daysLeftText(-1)).toBe("expired");
-  });
-
-  it("counts the days ahead", () => {
-    expect(daysLeftFor("2026-10-20")).toBe(1);
-    expect(daysLeftFor("2026-10-26")).toBe(7);
-    expect(daysLeftText(1)).toBe("1 day left");
-    expect(daysLeftText(7)).toBe("7 days left");
+describe("offerDeadlineOf", () => {
+  it("shows a date-only deadline on its own day, whatever the time zone", () => {
+    // West of UTC, a date read as UTC midnight would fall on the day before.
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    try {
+      const shown = offerDeadlineOf(application({ offerExpiresOn: "2026-10-26" }))?.date ?? "";
+      expect(shown).toMatch(/\b26\b/);
+      expect(shown).toContain("2026");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("has no deadline when the application has none or it cannot be read", () => {
     expect(offerDeadlineOf(application())).toBeNull();
     expect(offerDeadlineOf(application({ offerExpiresOn: "not a date" }))).toBeNull();
     expect(offerDeadlineOf(application({ offerExpiresOn: "2026-02-30" }))).toBeNull();
-  });
-
-  // Run the tests with TZ=America/Los_Angeles (and America/New_York) to cover a negative-offset time zone: a
-  // date-only value read as midnight UTC would fall on the day before and give -1 here.
-  it("does not shift a date-only deadline back a day west of UTC", () => {
-    expect(daysLeftFor("2026-10-19")).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -81,7 +67,17 @@ describe("trackerOf", () => {
     [[ApplicationStatus.Applied], 0],
     [[ApplicationStatus.Applied, ApplicationStatus.Screening], 1],
     [[ApplicationStatus.Applied, ApplicationStatus.Screening, ApplicationStatus.Interview], 2],
-    [[ApplicationStatus.Applied, ApplicationStatus.Screening, ApplicationStatus.Interview, ApplicationStatus.Offer], 3],
+    [[ApplicationStatus.Applied, ApplicationStatus.Screening, ApplicationStatus.Interview, ApplicationStatus.Selected], 3],
+    [
+      [
+        ApplicationStatus.Applied,
+        ApplicationStatus.Screening,
+        ApplicationStatus.Interview,
+        ApplicationStatus.Selected,
+        ApplicationStatus.Offer,
+      ],
+      4,
+    ],
   ])("stops a rejected application at the last stage it reached (%#)", (stages, step) => {
     expect(trackerOf(rejectedAfter(...stages))).toEqual({ activeStep: step, errorStep: step });
   });
@@ -193,11 +189,52 @@ describe("tabOf", () => {
     [ApplicationStatus.Applied, "active"],
     [ApplicationStatus.Screening, "active"],
     [ApplicationStatus.Interview, "active"],
+    [ApplicationStatus.Selected, "offers"],
     [ApplicationStatus.Offer, "offers"],
     [ApplicationStatus.OfferAccepted, "offers"],
     [ApplicationStatus.OfferDeclined, "closed"],
+    [ApplicationStatus.OfferExpired, "closed"],
     [ApplicationStatus.Rejected, "closed"],
   ])("files %s under %s", (status, tab) => {
     expect(tabOf(application({ status }))).toBe(tab);
+  });
+});
+
+describe("nextStepOf for an open offer", () => {
+  it("names the email subject so the candidate can find the offer", () => {
+    const offer = application({ status: ApplicationStatus.Offer, offerEmailSubject: "Offer letter" });
+    expect(nextStepOf(offer, [])).toBe('Your offer was emailed to you with the subject "Offer letter".');
+  });
+
+  it("asks the candidate to check the inbox when the subject is not known", () => {
+    expect(nextStepOf(application({ status: ApplicationStatus.Offer }), [])).toBe(
+      "An offer has been sent to your email. Please check your inbox.",
+    );
+  });
+});
+
+describe("nextStepOf for a selected candidate", () => {
+  it("tells the candidate that the offer letter will be sent soon", () => {
+    expect(nextStepOf(application({ status: ApplicationStatus.Selected }), [])).toBe(
+      "You have been selected for this position. Your offer letter will be sent to you soon.",
+    );
+  });
+});
+
+describe("an expired offer", () => {
+  it("is marked as an error on the Offer step", () => {
+    expect(trackerOf(application({ status: ApplicationStatus.OfferExpired }))).toEqual({
+      activeStep: 4,
+      errorStep: 4,
+    });
+  });
+
+  it("is dated by its deadline in the history", () => {
+    const expired = application({
+      status: ApplicationStatus.OfferExpired,
+      offerExpiresOn: "2026-11-12",
+      updatedDate: "2026-11-14 02:00:00",
+    });
+    expect(historyOf(expired, []).at(-1)).toEqual({ label: "Offer Expired", date: "2026-11-12", detail: "Current" });
   });
 });

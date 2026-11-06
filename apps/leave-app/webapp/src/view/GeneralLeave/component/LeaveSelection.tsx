@@ -19,6 +19,8 @@ import BeachAccessIcon from "@mui/icons-material/BeachAccess";
 import CategoryRoundedIcon from "@mui/icons-material/CategoryRounded";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import FamilyRestroomIcon from "@mui/icons-material/FamilyRestroom";
+import HandshakeOutlinedIcon from "@mui/icons-material/HandshakeOutlined";
+import HeartBrokenOutlinedIcon from "@mui/icons-material/HeartBrokenOutlined";
 import LocalHospitalIcon from "@mui/icons-material/LocalHospital";
 import PregnantWomanIcon from "@mui/icons-material/PregnantWoman";
 import ScheduleIcon from "@mui/icons-material/Schedule";
@@ -88,6 +90,18 @@ const LOCATION_LEAVE_TYPES: Record<string, LeaveTypeOption[]> = {
       type: LeaveType.SICK,
       label: LeaveLabel.SICK,
       icon: LocalHospitalIcon,
+    },
+    {
+      type: LeaveType.COMPASSIONATE,
+      label: LeaveLabel.COMPASSIONATE,
+      icon: HeartBrokenOutlinedIcon,
+      tooltip: LeaveTooltip[LeaveType.COMPASSIONATE],
+    },
+    {
+      type: LeaveType.OTHER_AUTHORIZED,
+      label: LeaveLabel.OTHER_AUTHORIZED,
+      icon: HandshakeOutlinedIcon,
+      tooltip: LeaveTooltip[LeaveType.OTHER_AUTHORIZED],
     },
   ],
   [EmployeeLocation.ES]: [

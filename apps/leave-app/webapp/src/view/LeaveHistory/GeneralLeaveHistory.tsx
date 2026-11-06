@@ -32,6 +32,8 @@ export default function GeneralLeaveHistory() {
         LeaveType.PATERNITY,
         LeaveType.MEDICAL,
         LeaveType.NO_PAY,
+        LeaveType.COMPASSIONATE,
+        LeaveType.OTHER_AUTHORIZED,
       ]}
       title={{ firstWord: "General", secondWord: `Leave History` }}
     />

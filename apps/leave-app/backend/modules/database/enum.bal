@@ -32,6 +32,8 @@ public enum LeaveType {
     SABBATICAL_LEAVE = "sabbatical",
     CONGES_PAYES_LEAVE = "conges_payes",
     RTT_LEAVE = "rtt",
+    COMPASSIONATE_LEAVE = "compassionate",
+    OTHER_AUTHORIZED_LEAVE = "other_authorized",
     MEDICAL_LEAVE = "medical",
     NO_PAY_LEAVE = "no-pay"
 }

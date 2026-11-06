@@ -36,6 +36,8 @@ const LEAVE_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
   [LeaveType.RTT]: { label: "RTT", color: "#795548" },
   [LeaveType.MEDICAL]: { label: "Medical", color: "#e91e63" },
   [LeaveType.NO_PAY]: { label: "No-Pay", color: "#757575" },
+  [LeaveType.COMPASSIONATE]: { label: "Compassionate", color: "#5c6bc0" },
+  [LeaveType.OTHER_AUTHORIZED]: { label: "Other Authorized", color: "#8d6e63" },
 };
 
 const PERIOD_CONFIG: Record<string, { label: string; icon: React.ReactNode }> = {

@@ -6,6 +6,7 @@ window.config = {
   ASGARDEO_REVOKE_ENDPOINT: "https://api.asgardeo.io/t/<your-asgardeo-tenant>/oauth2/revoke",
   AUTH_SIGN_IN_REDIRECT_URL: "http://localhost:3000",
   AUTH_SIGN_OUT_REDIRECT_URL: "http://localhost:3000",
-  CAREERS_BACKEND_BASE_URL: "http://localhost:8080",
-  USE_MOCK_PROFILE: "false",
+  CAREERS_BACKEND_BASE_URL: "http://localhost:9090",
+  // The wso2.com careers page that the Jobs link opens.
+  CAREERS_SITE_URL: "https://wso2.com/careers#careers",
 };

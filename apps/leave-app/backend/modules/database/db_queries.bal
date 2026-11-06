@@ -42,7 +42,15 @@ isolated function getCommonLeaveQuery() returns sql:ParameterizedQuery => `
         calendar_event_id,
         location,
         status,
-        approver_email
+        approver_email,
+        rejection_reason,
+        EXISTS (
+            SELECT 1 FROM leave_attachments attachment WHERE attachment.leave_id = leave_submissions.id
+        ) AS has_sick_note,
+        (
+            SELECT attachment.deleted_at FROM leave_attachments attachment
+            WHERE attachment.leave_id = leave_submissions.id
+        ) AS sick_note_deleted_on
     FROM leave_submissions
 `;
 
@@ -158,6 +166,112 @@ isolated function insertLeaveQuery(LeaveInput input, float numberOfDays, string 
     return insertQuery;
 }
 
+# Query to insert the sick note of a leave.
+#
+# + leaveId - ID of the leave the note belongs to
+# + sickNote - Encrypted sick note
+# + return - Insert query
+isolated function insertSickNoteQuery(int leaveId, SickNoteInput sickNote) returns sql:ParameterizedQuery => `
+        INSERT INTO leave_attachments (
+            leave_id,
+            content,
+            iv,
+            key_id,
+            content_type,
+            size_bytes,
+            uploaded_by
+        ) VALUES (
+            ${leaveId},
+            ${sickNote.content},
+            ${sickNote.iv},
+            ${sickNote.keyId},
+            ${sickNote.contentType},
+            ${sickNote.sizeBytes},
+            ${sickNote.uploadedBy}
+        )
+    `;
+
+# Query to get the details of a leave's sick note, without its content, with the email of the employee the leave
+# belongs to.
+#
+# + leaveId - Leave ID
+# + return - Select query
+isolated function getSickNoteQuery(int leaveId) returns sql:ParameterizedQuery => `
+        SELECT
+            attachment.id AS id,
+            attachment.leave_id AS leave_id,
+            leave_submissions.email AS email,
+            attachment.key_id AS key_id,
+            attachment.content_type AS content_type,
+            attachment.deleted_at AS deleted_at
+        FROM
+            leave_attachments attachment
+            JOIN leave_submissions ON leave_submissions.id = attachment.leave_id
+        WHERE
+            attachment.leave_id = ${leaveId}
+    `;
+
+# Query to get the encrypted content of a sick note.
+#
+# + attachmentId - ID of the sick note attachment
+# + return - Select query
+isolated function getSickNoteContentQuery(int attachmentId) returns sql:ParameterizedQuery => `
+        SELECT
+            content,
+            iv
+        FROM
+            leave_attachments
+        WHERE
+            id = ${attachmentId}
+    `;
+
+# Query to record a sick note download.
+#
+# + attachmentId - ID of the sick note attachment
+# + leaveId - ID of the leave the note belongs to
+# + downloadedBy - Email of the user who downloaded the note
+# + return - Insert query
+isolated function recordSickNoteDownloadQuery(int attachmentId, int leaveId, string downloadedBy)
+    returns sql:ParameterizedQuery => `
+        INSERT INTO leave_attachment_downloads (
+            attachment_id,
+            leave_id,
+            downloaded_by
+        ) VALUES (
+            ${attachmentId},
+            ${leaveId},
+            ${downloadedBy}
+        )
+    `;
+
+# Query to list sick leaves in France that have a sick note and overlap the given dates, newest first.
+#
+# + startDate - Start of the date range (yyyy-mm-dd)
+# + endDate - End of the date range (yyyy-mm-dd), inclusive
+# + return - Select query
+isolated function getSickNotesQuery(string startDate, string endDate) returns sql:ParameterizedQuery => `
+        SELECT
+            leave_submissions.id AS leave_id,
+            leave_submissions.email AS email,
+            leave_submissions.start_date AS start_date,
+            leave_submissions.end_date AS end_date,
+            leave_submissions.num_days AS num_days,
+            leave_submissions.status AS status,
+            attachment.uploaded_at AS uploaded_at,
+            attachment.deleted_at AS deleted_at,
+            attachment.size_bytes AS size_bytes,
+            attachment.content_type AS content_type
+        FROM
+            leave_attachments attachment
+            JOIN leave_submissions ON leave_submissions.id = attachment.leave_id
+        WHERE
+            leave_submissions.leave_type = ${SICK_LEAVE} AND leave_submissions.location = ${FRANCE} AND
+            leave_submissions.start_date < DATE_ADD(${endDate}, INTERVAL 1 DAY) AND
+            leave_submissions.end_date >= ${startDate}
+        ORDER BY
+            leave_submissions.start_date DESC, leave_submissions.id DESC
+    `;
+
 # Set the status of a leave application.
 #
 # + status - Status of the leave to be set (APPROVED, REJECTED, CANCELLED...etc)
@@ -185,6 +299,55 @@ isolated function setLeaveStatusQuery(Status status, int leaveId, string? approv
             id = ${leaveId}
     `;
 }
+
+# Query to reject a pending leave request.
+#
+# + leaveId - ID of the leave record
+# + approverEmail - Email of the approver rejecting the request
+# + reason - Reason for the rejection, or nil when none is given
+# + return - Update query that only changes the leave while it is pending
+isolated function rejectLeaveQuery(int leaveId, string approverEmail, string? reason)
+    returns sql:ParameterizedQuery => `
+        UPDATE
+            leave_submissions
+        SET
+            status = ${REJECTED},
+            approver_email = ${approverEmail},
+            rejection_reason = ${reason}
+        WHERE
+            id = ${leaveId} AND status = ${PENDING}
+    `;
+
+# Query to approve a pending leave request and store its calendar event ID.
+#
+# + leaveId - ID of the leave record
+# + approverEmail - Email of the approver approving the request
+# + calendarEventId - ID of the calendar event to be created for the leave
+# + return - Update query that only changes the leave while it is pending
+isolated function approvePendingLeaveQuery(int leaveId, string approverEmail, string calendarEventId)
+    returns sql:ParameterizedQuery => `
+        UPDATE
+            leave_submissions
+        SET
+            status = ${APPROVED},
+            approver_email = ${approverEmail},
+            calendar_event_id = ${calendarEventId}
+        WHERE
+            id = ${leaveId} AND status = ${PENDING}
+    `;
+
+# Query to cancel a pending leave request.
+#
+# + leaveId - ID of the leave record
+# + return - Update query that only changes the leave while it is pending
+isolated function cancelPendingLeaveQuery(int leaveId) returns sql:ParameterizedQuery => `
+        UPDATE
+            leave_submissions
+        SET
+            status = ${CANCELLED}
+        WHERE
+            id = ${leaveId} AND status = ${PENDING}
+    `;
 
 # Query to get the end date of the last approved sabbatical leave for an employee.
 #

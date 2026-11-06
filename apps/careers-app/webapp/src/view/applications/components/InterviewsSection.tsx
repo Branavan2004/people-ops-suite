@@ -14,8 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Button, Chip, Link, Stack, Typography } from "@mui/material";
-import { ExternalLink } from "lucide-react";
+import { Box, Button, Chip, Link, Stack, Typography } from "@wso2/oxygen-ui";
+import { ExternalLink } from "@wso2/oxygen-ui-icons-react";
 
 import type { ApplicationInterview } from "@/types/types";
 import { BRAND_TINT } from "@config/brand";

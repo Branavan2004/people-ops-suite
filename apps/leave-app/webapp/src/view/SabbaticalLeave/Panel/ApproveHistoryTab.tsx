@@ -40,7 +40,7 @@ export default function ApproveHistoryTab() {
     dispatch(
       fetchLeaveHistory({
         subordinatesLeaves: true,
-        leaveCategory: [LeaveType.SABBATICAL],
+        leaveCategory: [LeaveType.SABBATICAL, LeaveType.OTHER_AUTHORIZED],
         statuses: [Status.APPROVED, Status.REJECTED],
         orderBy: OrderBy.DESC,
       }),
@@ -56,7 +56,7 @@ export default function ApproveHistoryTab() {
         borderBottom={`1px solid ${theme.palette.divider}`}
         pb="1rem"
       >
-        <Title firstWord="Sabbatical" secondWord=" Leave History" borderEnabled={false} />
+        <Title firstWord="Approval" secondWord=" History" borderEnabled={false} />
       </Stack>
       {loading ? (
         <Stack alignItems="center" justifyContent="center" minHeight="200px">

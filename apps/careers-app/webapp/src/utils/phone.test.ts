@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { COUNTRY_OPTIONS, toE164 } from "@utils/phone";
+import { COUNTRY_OPTIONS, isValidE164, phoneFrom, phoneInputStart, toE164 } from "@utils/phone";
 
 describe("toE164", () => {
   it("puts the dialing code in front of the digits", () => {
@@ -35,6 +35,37 @@ describe("toE164", () => {
 
   it("matches the pattern the backend accepts", () => {
     expect(toE164("+94", "0771234567")).toMatch(/^\+[1-9]\d{1,14}$/);
+  });
+});
+
+describe("phoneInputStart", () => {
+  it("splits a number in the backend format into its country and digits", () => {
+    expect(phoneInputStart("+12025550123", "LK")).toEqual({ countryIso: "US", national: "2025550123" });
+  });
+
+  it("brings back digits kept without a country, with no country so the default can be taken", () => {
+    expect(phoneInputStart("2025550123", "LK")).toEqual({ countryIso: "", national: "2025550123" });
+  });
+
+  it("starts empty with the default country when there is no value", () => {
+    expect(phoneInputStart("", "LK")).toEqual({ countryIso: "LK", national: "" });
+  });
+});
+
+describe("phoneFrom", () => {
+  it("joins the dialing code of the chosen country and the digits", () => {
+    expect(phoneFrom("US", "2025550123")).toBe("+12025550123");
+  });
+
+  it("is empty while nothing was typed", () => {
+    expect(phoneFrom("US", "")).toBe("");
+    expect(phoneFrom("", "")).toBe("");
+  });
+
+  it("keeps digits typed before a country is chosen, so they fail the check instead of vanishing", () => {
+    const typed = phoneFrom("", "2025550123");
+    expect(typed).toBe("2025550123");
+    expect(isValidE164(typed)).toBe(false);
   });
 });
 

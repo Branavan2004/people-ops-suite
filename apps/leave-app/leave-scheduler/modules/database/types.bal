@@ -55,3 +55,26 @@ public type SabbaticalReminder record {|
     @sql:Column {name: "duration_days"}
     int durationDays;
 |};
+
+# A pending Other Authorized Leave that is due for an approval reminder.
+public type ApprovalReminder record {|
+    # Leave id
+    int id;
+    # Email of the employee who applied
+    string email;
+    # Approver recorded on the leave; informational only, reminders go to the employee's current HR lead
+    @sql:Column {name: "approver_email"}
+    string? approverEmail;
+    # Leave start date (yyyy-mm-dd)
+    @sql:Column {name: "start_date"}
+    string startDate;
+    # Leave end date (yyyy-mm-dd)
+    @sql:Column {name: "end_date"}
+    string endDate;
+    # Number of leave days
+    @sql:Column {name: "num_days"}
+    float numberOfDays;
+    # Date the leave was submitted (yyyy-mm-dd)
+    @sql:Column {name: "created_on"}
+    string createdOn;
+|};

@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Chip } from "@mui/material";
+import { Chip } from "@wso2/oxygen-ui";
 
 import { ApplicationStatus } from "@config/constant";
 
@@ -28,14 +28,19 @@ const statusConfig: Record<ApplicationStatus, { color: string }> = {
   [ApplicationStatus.Applied]: { color: "#3B82F6" },
   [ApplicationStatus.Screening]: { color: "#F59E0B" },
   [ApplicationStatus.Interview]: { color: "#8B5CF6" },
+  [ApplicationStatus.Selected]: { color: "#14B8A6" },
   [ApplicationStatus.Offer]: { color: "#10B981" },
   [ApplicationStatus.OfferAccepted]: { color: "#059669" },
   [ApplicationStatus.OfferDeclined]: { color: "#6B7280" },
+  [ApplicationStatus.OfferExpired]: { color: "#6B7280" },
   [ApplicationStatus.Rejected]: { color: "#EF4444" },
 };
 
+// A status this version does not know, for example one the backend added later, shows in grey and does not break the page.
+const UNKNOWN_STATUS = { color: "#6B7280" };
+
 const ApplicationStatusBadge = ({ status, size = "small" }: Props) => {
-  const config = statusConfig[status];
+  const config = statusConfig[status] ?? UNKNOWN_STATUS;
   return (
     <Chip
       label={status}

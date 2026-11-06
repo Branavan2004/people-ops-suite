@@ -20,6 +20,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import Title from "@root/src/component/common/Title";
 import { PAGE_MAX_WIDTH } from "@root/src/config/ui";
+import { downloadSickNote } from "@root/src/services/leaveService";
+import { enqueueSnackbarMessage } from "@root/src/slices/commonSlice/common";
 import {
   cancelLeave,
   fetchLeaveHistory,
@@ -29,7 +31,9 @@ import {
 } from "@root/src/slices/leaveSlice/leave";
 import { useAppDispatch, useAppSelector } from "@root/src/slices/store";
 import { selectUser } from "@root/src/slices/userSlice/user";
-import { LeaveType, OrderBy, State, Status } from "@root/src/types/types";
+import { LeaveType, OrderBy, State } from "@root/src/types/types";
+import { HISTORY_STATUSES } from "@root/src/utils/leaveRules";
+import { saveSickNoteBlob, sickNoteErrorMessage } from "@root/src/utils/sickNoteDownload";
 
 import LeaveCard from "./component/LeaveCard";
 
@@ -69,7 +73,7 @@ export default function LeaveHistory({ leaveType, title }: LeaveHistoryProps = {
           email: userInfo.workEmail,
           startDate: `${selectedYear}-01-01`,
           endDate: `${selectedYear}-12-31`,
-          statuses: [Status.APPROVED, Status.PENDING],
+          statuses: HISTORY_STATUSES,
           orderBy: OrderBy.DESC,
           leaveCategory: leaveType,
         }),
@@ -86,6 +90,14 @@ export default function LeaveHistory({ leaveType, title }: LeaveHistoryProps = {
 
   const handleDeleteLeave = async (id: number) => {
     dispatch(cancelLeave(id));
+  };
+
+  const handleDownloadSickNote = async (id: number) => {
+    try {
+      saveSickNoteBlob(await downloadSickNote(id), id);
+    } catch (err) {
+      dispatch(enqueueSnackbarMessage({ message: await sickNoteErrorMessage(err), type: "error" }));
+    }
   };
 
   const handleYearChange = (event: SelectChangeEvent<number>) => {
@@ -158,7 +170,11 @@ export default function LeaveHistory({ leaveType, title }: LeaveHistoryProps = {
               <LeaveCard
                 key={leave.id}
                 id={leave.id}
-                type={`${leave.leaveType}`}
+                type={leave.leaveType}
+                status={leave.status}
+                rejectionReason={leave.rejectionReason}
+                hasSickNote={leave.hasSickNote}
+                sickNoteDeletedOn={leave.sickNoteDeletedOn}
                 startDate={leave.startDate.substring(0, 10)}
                 endDate={leave.endDate.substring(0, 10)}
                 duration={`${leave.numberOfDays} days`}
@@ -166,6 +182,7 @@ export default function LeaveHistory({ leaveType, title }: LeaveHistoryProps = {
                 day={day}
                 cancelling={cancellingLeaveId === leave.id}
                 onDelete={handleDeleteLeave}
+                onDownloadSickNote={handleDownloadSickNote}
               />
             );
           })}

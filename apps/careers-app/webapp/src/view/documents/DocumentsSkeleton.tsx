@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Card, Skeleton, Stack } from "@mui/material";
+import { Box, Card, Skeleton, Stack } from "@wso2/oxygen-ui";
 
 import { cardSx } from "@utils/styles";
 import { STEPS } from "@view/documents/documentFiles";

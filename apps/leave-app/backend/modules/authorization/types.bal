@@ -26,6 +26,8 @@ public type AppRoles record {|
     string[] generalReportRoles = [];
     # Role for viewing the sabbatical leave report across all employees
     string[] sabbaticalReportRoles = [];
+    # Role for listing sick notes and downloading any employee's sick note
+    string[] sickNoteRoles;
 |};
 
 # User info custom type for Asgardeo token.

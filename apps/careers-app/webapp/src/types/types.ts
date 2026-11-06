@@ -23,11 +23,6 @@ export enum State {
   idle = "idle",
 }
 
-export enum ThemeMode {
-  Light = "light",
-  Dark = "dark",
-}
-
 export interface PreLoaderProps {
   message?: string;
   isLoading?: boolean;
@@ -52,29 +47,6 @@ export type EditableProfileFields = Pick<
   "firstName" | "lastName" | "gender" | "contactNo" | "address" | "university"
 >;
 
-export interface Job {
-  id: string;
-  title: string;
-  team: string;
-  country: string[];
-  jobType: string;
-  publishStatus: string;
-  postedDate: string;
-}
-
-// What an applicant submits alongside their CV.
-export interface GuestApplicationDetails {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  address: string;
-  university?: string;
-  authorizedToWork: boolean;
-  // Whether the candidate agreed to receive emails from WSO2.
-  marketingEmails: boolean;
-}
-
 interface ApplicationTimelineEvent {
   stage: ApplicationStatus;
   date: string;
@@ -96,38 +68,21 @@ export interface Application {
   id: string;
   jobId: string;
   jobTitle: string;
-  department: string;
   appliedDate: string;
   // When the application last changed, which is when it reached its current status.
   updatedDate?: string;
   status: ApplicationStatus;
-  // The last day the candidate can answer an offer.
+  // The last day the candidate can answer an offer, anywhere on Earth.
   offerExpiresOn?: string;
-  // True once the candidate has sent feedback about this application.
-  feedbackSubmitted?: boolean;
+  // The subject of the offer email, so the candidate can find it; only present while the offer is open.
+  offerEmailSubject?: string;
   timeline?: ApplicationTimelineEvent[];
   // Only present when the list of applications carries the interviews.
   interviews?: ApplicationInterview[];
 }
 
-// A candidate's answer to an offer; a declined offer carries the reason.
-export interface OfferAnswer {
-  response: "accepted" | "declined";
-  reason?: string;
-  comment?: string;
-}
-
-// The offer letter a candidate was sent.
-export interface OfferLetter {
-  // The subject of the email the letter was sent in.
-  subject: string;
-  // ISO date-time the letter was sent.
-  sentOn: string;
-  // A reference to the email thread the letter was sent in; empty when there is none.
-  threadId: string;
-  // The letter itself, as HTML.
-  html: string;
-}
+// A candidate's answer to an offer; a decline always carries its reason, and may carry more feedback.
+export type OfferAnswer = { response: "accepted" } | { response: "declined"; reason: string; comment?: string };
 
 // The personal details a new joiner fills in after accepting an offer.
 export interface PersonalDetails {
@@ -235,10 +190,4 @@ export interface DocumentRequirements {
   dependantRelationships: string[];
   maxDependants: number;
   maxEmergencyContacts: number;
-}
-
-// What a candidate tells us about their application experience.
-export interface ApplicationFeedback {
-  rating: number | null;
-  comment: string;
 }

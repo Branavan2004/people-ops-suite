@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Typography } from "@mui/material";
+import { Box, Typography } from "@wso2/oxygen-ui";
 
 interface PageHeadingProps {
   // The first word, shown in the brand color.

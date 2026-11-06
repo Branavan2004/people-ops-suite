@@ -88,7 +88,18 @@ function processSabbaticalLeaveRequest(SabbaticalProcessPayload payload)
     returns error? {
     var {action, applicantEmail, approverEmail, leaveStartDate, leaveEndDate, leaveId, location, comment,
     numberOfDays} = payload;
-    string[] recipientsList = check getRecipientsForSabbaticalNotifications(applicantEmail, approverEmail);
+    string[]|error recipients = getRecipientsForSabbaticalNotifications(applicantEmail, approverEmail);
+    string[] recipientsList;
+    if recipients is string[] {
+        recipientsList = recipients;
+    } else if action == CANCEL {
+        // The leave is already cancelled, so the cancellation still goes out, without the lead's own lead.
+        log:printWarn("Could not look up the lead of a cancelled sabbatical, so their lead is not notified",
+                recipients, leadEmail = approverEmail);
+        recipientsList = [...sabbaticalMailGroups, applicantEmail, approverEmail];
+    } else {
+        return recipients;
+    }
     string emailSubject = "[Leave App] Sabbatical Leave Application - " + applicantEmail + " (" + leaveStartDate +
     " - " + leaveEndDate + ")";
     string emailBody = "";
@@ -108,9 +119,10 @@ function processSabbaticalLeaveRequest(SabbaticalProcessPayload payload)
             if leaveId is () {
                 return error("Leave ID is required for REJECT action");
             }
-            _ = check database:setLeaveStatus(leaveId, APPROVED, approverEmail);
-            // Create calendar event for approved sabbatical leave
+            // Only a pending request is approved, so one cancelled or decided meanwhile is left as it is. The
+            // calendar event ID is stored with the approval.
             string calendarEventId = createUuidForCalendarEvent();
+            check database:approvePendingLeave(leaveId, approverEmail, calendarEventId);
             SabbaticalLeaveResponse leaveResponse = {
                 id: calendarEventId,
                 startDate: leaveStartDate,
@@ -118,8 +130,6 @@ function processSabbaticalLeaveRequest(SabbaticalProcessPayload payload)
                 location: location
             };
             _ = check createSabbaticalLeaveEventInCalendar(applicantEmail, leaveResponse, calendarEventId);
-            _ = check database:setCalendarEventIdForSabbaticalLeave(
-                    leaveId, calendarEventId);
         }
         REJECT => {
             template = email:bindKeyValues(email:sabbaticalApprovalTemplate, {
@@ -134,7 +144,8 @@ function processSabbaticalLeaveRequest(SabbaticalProcessPayload payload)
             if leaveId is () {
                 return error("Leave ID is required for REJECT action");
             }
-            _ = check database:setLeaveStatus(leaveId, REJECTED, approverEmail);
+            // Only a pending request is rejected, as above.
+            check database:rejectLeave(leaveId, approverEmail, ());
         }
         CANCEL => {
             template = email:bindKeyValues(email:sabbaticalCancellationTemplate, {
@@ -155,7 +166,10 @@ function processSabbaticalLeaveRequest(SabbaticalProcessPayload payload)
                 emailSubject: emailSubject,
                 emailRecipients: recipientsList,
                 isMorningLeave: (),
-                status: PENDING
+                status: PENDING,
+                // The lead decides the request, so they are its approver from the start. Cancelling it and the
+                // lead's own sabbatical report both look the approver up.
+                approverEmail
             };
 
             template = email:bindKeyValues(email:sabbaticalApplicationTemplate, {
@@ -190,10 +204,14 @@ function processSabbaticalLeaveRequest(SabbaticalProcessPayload payload)
 
 # Get recipients for sabbatical leave notifications.
 # + applicantEmail - Applicant email
-# + leadEmail - Reporting lead email
+# + leadEmail - Reporting lead email. Blank only for a cancellation whose lead is not known, which then goes to the
+# applicant and the sabbatical groups
 # + return - List of recipient emails or an error
 function getRecipientsForSabbaticalNotifications(string applicantEmail, string leadEmail)
     returns string[]|error {
+    if leadEmail.trim() == "" {
+        return [...sabbaticalMailGroups, applicantEmail];
+    }
     Employee reportingLead = check employee:getEmployee(leadEmail);
 
     string[] recipientsList = [...sabbaticalMailGroups, applicantEmail, leadEmail];

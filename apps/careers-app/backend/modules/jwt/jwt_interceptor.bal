@@ -14,27 +14,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import wso2/careers_app.apply;
 import wso2/careers_app.types;
 
 import ballerina/http;
 import ballerina/log;
 
-final apply:UserRateLimiter signedInRateLimiter = new;
-
-# The routes open to guests, listed exactly: the job list, org structure, one job's detail and applying. A route
-# that is not listed is not public.
-isolated function isPublicRoute(string method, string[] path) returns boolean {
-    if method == http:GET {
-        return (path.length() == 1 && path[0] == "jobs")
-            || (path.length() == 2 && path[0] == "jobs" && path[1] == "org-structure")
-            || (path.length() == 2 && path[0] == "jobs" && types:isValidJobId(path[1]));
-    }
-    if method == http:POST {
-        return path.length() == 3 && path[0] == "jobs" && types:isValidJobId(path[1]) && path[2] == "apply";
-    }
-    return false;
-}
+final UserRateLimiter signedInRateLimiter = new;
 
 # Validates the caller's bearer token (JWKS, falling back to introspection)
 # and stashes their identity in the request context for resource functions
@@ -44,10 +29,6 @@ public isolated service class JwtInterceptor {
     isolated resource function 'default [string... path](http:RequestContext ctx, http:Request req)
             returns http:NextService|AppUnauthorizedError|AppTooManyRequestsError|error? {
         if req.method == http:OPTIONS {
-            return ctx.next();
-        }
-
-        if isPublicRoute(req.method, path) {
             return ctx.next();
         }
 
@@ -67,7 +48,7 @@ public isolated service class JwtInterceptor {
         if !signedInRateLimiter.tryAcquireUser(user.sub) {
             log:printWarn("Request rate limit reached for a signed-in user", requestId = types:requestIdOf(ctx));
             return <AppTooManyRequestsError>{
-                headers: {"Retry-After": apply:signedInWindowSeconds.toString()},
+                headers: {"Retry-After": signedInWindowSeconds.toString()},
                 body: {message: "Too many requests"}
             };
         }

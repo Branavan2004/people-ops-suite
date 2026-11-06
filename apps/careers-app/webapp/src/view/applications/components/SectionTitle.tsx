@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Typography } from "@mui/material";
+import { Typography } from "@wso2/oxygen-ui";
 
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
   <Typography fontSize="0.8rem" fontWeight={700} letterSpacing="0.08em" color="text.secondary" mb={1.25}>

@@ -16,72 +16,31 @@
 
 import AppHandler from "@app/AppHandler";
 import { AuthProvider } from "@asgardeo/auth-react";
-import CssBaseline from "@mui/material/CssBaseline";
-import { StyledEngineProvider, ThemeProvider, createTheme } from "@mui/material/styles";
+import { OxygenUIThemeProvider, WSO2Theme } from "@wso2/oxygen-ui";
 import { SnackbarProvider } from "notistack";
 import { Provider } from "react-redux";
 
-import { useEffect, useMemo, useState } from "react";
-
 import { APP_NAME, AsgardeoConfig } from "@config/config";
 import AppAuthProvider from "@context/AuthContext";
-import { ColorModeContext } from "@context/ColorModeContext";
 import { store } from "@slices/store";
-import { themeSettings } from "@src/theme";
-import { ThemeMode } from "@/types/types";
 
 import "./index.css";
 
 function App() {
   document.title = APP_NAME || "WSO2 Careers";
 
-  // The candidate's saved choice, or light mode when they have not chosen one.
-  const processLocalThemeMode = (): ThemeMode => {
-    try {
-      return localStorage.getItem("careers-app-theme") === ThemeMode.Dark ? ThemeMode.Dark : ThemeMode.Light;
-    } catch {
-      return ThemeMode.Light;
-    }
-  };
-
-  const [mode, setMode] = useState<ThemeMode>(processLocalThemeMode());
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", mode);
-  }, [mode]);
-
-  const colorMode = useMemo(
-    () => ({
-      mode,
-      toggleColorMode: () => {
-        const newMode = mode === ThemeMode.Light ? ThemeMode.Dark : ThemeMode.Light;
-        localStorage.setItem("careers-app-theme", newMode);
-        setMode(newMode);
-        document.documentElement.setAttribute("data-theme", newMode);
-      },
-    }),
-    [mode],
-  );
-
-  const theme = useMemo(() => createTheme(themeSettings(mode)), [mode]);
-
   return (
-    <ColorModeContext.Provider value={colorMode}>
-      <StyledEngineProvider injectFirst>
-        <SnackbarProvider maxSnack={3} preventDuplicate>
-          <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <Provider store={store}>
-              <AuthProvider config={AsgardeoConfig}>
-                <AppAuthProvider>
-                  <AppHandler />
-                </AppAuthProvider>
-              </AuthProvider>
-            </Provider>
-          </ThemeProvider>
-        </SnackbarProvider>
-      </StyledEngineProvider>
-    </ColorModeContext.Provider>
+    <OxygenUIThemeProvider theme={WSO2Theme}>
+      <SnackbarProvider maxSnack={3} preventDuplicate>
+        <Provider store={store}>
+          <AuthProvider config={AsgardeoConfig}>
+            <AppAuthProvider>
+              <AppHandler />
+            </AppAuthProvider>
+          </AuthProvider>
+        </Provider>
+      </SnackbarProvider>
+    </OxygenUIThemeProvider>
   );
 }
 

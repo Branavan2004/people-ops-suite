@@ -15,7 +15,9 @@
 // under the License.
 import leave_service.calendar_events;
 import leave_service.database;
+import leave_service.email;
 import leave_service.employee;
+import leave_service.policy;
 
 import ballerina/http;
 import ballerina/lang.regexp;
@@ -70,9 +72,10 @@ public isolated function checkIfWeekday(time:Civil|time:Utc date) returns boolea
 # + isValidationOnlyMode - A flag indicating whether to only validate the leave (`true`) or 
 # insert the leave into the database (`false`)
 # + token - The authentication token for accessing employee details
+# + sickNote - Encrypted sick note to save with the leave, in the same transaction
 # + return - Returns a `LeaveDetails` record if successful, or an error otherwise
-public isolated function insertLeaveToDatabase(database:LeaveInput input, boolean isValidationOnlyMode, string token)
-    returns LeaveDetails|error {
+public isolated function insertLeaveToDatabase(database:LeaveInput input, boolean isValidationOnlyMode, string token,
+        database:SickNoteInput? sickNote = ()) returns LeaveDetails|error {
     LeaveDetails[]|error? leaveDetails = calculateLeaveDetails(input, token);
     if leaveDetails is LeaveDetails[] {
         return error(ERR_MSG_LEAVE_OVERLAPS_WITH_EXISTING_LEAVE);
@@ -88,7 +91,9 @@ public isolated function insertLeaveToDatabase(database:LeaveInput input, boolea
         }
         float numDaysForLeave = getNumberOfDaysFromLeaveDays(effectiveLeaveDaysFromLeave);
 
-        database:Leave|error createdLeave = database:insertLeave(input, numDaysForLeave, location);
+        database:Leave|error createdLeave = sickNote is database:SickNoteInput
+            ? database:insertLeaveWithSickNote(input, numDaysForLeave, location, sickNote)
+            : database:insertLeave(input, numDaysForLeave, location);
         if createdLeave is error {
             return createdLeave;
         }
@@ -124,6 +129,177 @@ public isolated function insertLeaveToDatabase(database:LeaveInput input, boolea
     validatedLeave.effectiveDays = effectiveLeaveDaysFromLeave;
     validatedLeave.numberOfDays = getNumberOfDaysFromLeaveDays(effectiveLeaveDaysFromLeave);
     return validatedLeave;
+}
+
+# Submit a leave other than sabbatical leave, for `POST /leaves` and `POST /leaves/sick-leave`.
+#
+# Validates the leave, or saves it and sends the leave notification, the additional comment email and the calendar
+# event. Leave that needs the lead's approval is saved as pending instead.
+#
+# + payload - Leave payload
+# + email - Email of the applicant
+# + jwt - JWT token of the applicant
+# + isValidationOnlyMode - Whether to only validate the leave
+# + sickNote - Encrypted sick note to save with the leave, in the same transaction
+# + return - Calculated leave in validation mode, Ok when the leave is submitted, BadRequest for an invalid leave,
+# otherwise InternalServerError
+function submitLeave(LeavePayload payload, string email, string jwt, boolean isValidationOnlyMode,
+        database:SickNoteInput? sickNote = ())
+    returns CalculatedLeave|http:Ok|http:BadRequest|http:InternalServerError {
+
+    do {
+        [time:Utc, time:Utc]|error validatedDateRange = validateDateRange(payload.startDate, payload.endDate);
+        if validatedDateRange is error {
+            log:printError(ERR_MSG_INVALID_DATE_FORMAT, validatedDateRange);
+            return <http:BadRequest>{
+                body: {
+                    message: ERR_MSG_INVALID_DATE_FORMAT
+                }
+            };
+        }
+        // Day[] weekdaysFromRange = getWeekdaysFromRange(validatedDateRange[0], validatedDateRange[1]);
+        LeaveInput input = {
+            email,
+            startDate: payload.startDate,
+            endDate: payload.endDate,
+            leaveType: payload.leaveType,
+            periodType: payload.periodType,
+            isMorningLeave: payload.isMorningLeave,
+            emailRecipients: payload.emailRecipients,
+            calendarEventId: payload.calendarEventId,
+            comment: payload.comment,
+            isPublicComment: payload.isPublicComment,
+            emailSubject: payload.emailSubject,
+            status: APPROVED
+        };
+        // France-only leave types are refused here as a 400, not via `fail` (which maps to 500).
+        string|error employeeLocation = employee:getEmployeeLocation(email, jwt);
+        if employeeLocation is error {
+            fail error(employeeLocation.message(), employeeLocation);
+        }
+        error? leaveTypeError = policy:checkLeaveTypeAllowed(payload.leaveType, employeeLocation);
+        if leaveTypeError is error {
+            return <http:BadRequest>{
+                body: {
+                    message: leaveTypeError.message()
+                }
+            };
+        }
+        if isValidationOnlyMode {
+            LeaveDetails|error validatedLeave = insertLeaveToDatabase(input, isValidationOnlyMode, jwt);
+            if validatedLeave is error {
+                fail error(validatedLeave.message(), validatedLeave);
+            }
+
+            return {
+                workingDays: payload.periodType is database:HALF_DAY_LEAVE
+                    ? 0.5
+                    : <float>validatedLeave.effectiveDays.length(),
+                hasOverlap: false,
+                message: "Valid leave request"
+            };
+        }
+        // France sick leave is submitted with its sick note through `POST /leaves/sick-leave`.
+        if sickNote is () && policy:requiresSickNote(payload.leaveType, employeeLocation) {
+            return <http:BadRequest>{
+                body: {
+                    message: "A sick note is required for sick leave in France. Attach it to the request."
+                }
+            };
+        }
+        // Leave that needs the lead's approval is saved as pending; the team email and calendar event wait. The lead
+        // decides on its reason, so the reason is required and always kept private.
+        if policy:needsLeadApproval(payload.leaveType) {
+            error? reasonCheck = policy:checkCommentGiven(payload.leaveType, payload.comment);
+            if reasonCheck is error {
+                return <http:BadRequest>{
+                    body: {
+                        message: reasonCheck.message()
+                    }
+                };
+            }
+            input.isPublicComment = false;
+            return submitForApproval(input, jwt);
+        }
+
+        final readonly & email:EmailNotificationDetails emailContentForLeave = check email:generateContentForLeave(
+                    jwt, email, payload
+            );
+        final readonly & string calendarEventId = createUuidForCalendarEvent();
+        final readonly & string[]|error allRecipientsForUser = getAllEmailRecipientsForUser(
+                    email,
+                payload.emailRecipients,
+                jwt
+            );
+        if allRecipientsForUser is error {
+            fail error(allRecipientsForUser.message(), allRecipientsForUser);
+        }
+        final readonly & string? comment = payload.comment;
+
+        payload.emailSubject = emailContentForLeave.subject;
+        payload.calendarEventId = calendarEventId;
+        input.emailSubject = emailContentForLeave.subject;
+        input.calendarEventId = calendarEventId;
+        input.emailRecipients = allRecipientsForUser;
+
+        LeaveDetails|error leave = insertLeaveToDatabase(input, isValidationOnlyMode, jwt, sickNote);
+        if leave is error {
+            fail error(leave.message(), leave);
+        }
+        final readonly & LeaveResponse leaveResponse = {
+            id: leave.id,
+            startDate: leave.startDate,
+            calendarEventId: leave.calendarEventId,
+            periodType: leave.periodType,
+            createdDate: leave.createdDate,
+            leaveType: leave.leaveType,
+            endDate: leave.endDate,
+            location: leave.location,
+            numberOfDays: leave.numberOfDays ?: 0.0,
+            status: <Status>leave.status,
+            email: leave.email,
+            isMorningLeave: leave.isMorningLeave
+        };
+
+        future<error?> notificationFuture = start email:sendLeaveNotification(
+                    emailContentForLeave,
+                allRecipientsForUser
+            );
+        _ = start createLeaveEventInCalendar(email, leaveResponse, calendarEventId);
+        if comment is string && !checkIfEmptyString(comment) {
+            string[] commentRecipients = allRecipientsForUser;
+            if !payload.isPublicComment {
+                commentRecipients = check getPrivateRecipientsForUser(
+                            email,
+                        payload.emailRecipients,
+                        jwt
+                    );
+            }
+
+            error? notificationResult = wait notificationFuture;
+            if notificationResult is () {
+                // Does not send the additional comment notification if the main notification has failed
+                final email:EmailNotificationDetails contentForAdditionalComment =
+                    email:generateContentForAdditionalComment(emailContentForLeave.subject, comment);
+                _ = start email:sendAdditionalComment(contentForAdditionalComment.cloneReadOnly(),
+                        commentRecipients.cloneReadOnly());
+            }
+        }
+        return <http:Ok>{
+            body: {
+                message: "Leave submitted successfully"
+            }
+        };
+
+    } on fail error internalErr {
+        string errMsg = "Error occurred while submitting a leave";
+        log:printError(errMsg, internalErr);
+        return <http:InternalServerError>{
+            body: {
+                message: errMsg
+            }
+        };
+    }
 }
 
 # Retrieves all unique email recipients for a user, including default recipients, their lead's email, and 
@@ -690,4 +866,26 @@ isolated function getOptionalMailsToNotify(string email) returns employee:Defaul
         });
     }
     return optionalMailsToNotify;
+}
+
+# Get the response refusing to cancel a leave in the given status, if it cannot be cancelled.
+#
+# + status - Leave status
+# + return - BadRequest for a cancelled or rejected leave, otherwise nil
+isolated function getCancellationRefusal(Status? status) returns http:BadRequest? {
+    if status == CANCELLED {
+        return <http:BadRequest>{
+            body: {
+                message: "Leave is already cancelled!"
+            }
+        };
+    }
+    if status == REJECTED {
+        return <http:BadRequest>{
+            body: {
+                message: "Rejected leave cannot be cancelled!"
+            }
+        };
+    }
+    return;
 }

@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Stack, Typography } from "@mui/material";
+import { Box, Stack, Typography } from "@wso2/oxygen-ui";
 
 import { type HistoryEntry, formatDate, formatDateTime } from "@view/applications/applicationHelpers";
 import SectionTitle from "@view/applications/components/SectionTitle";

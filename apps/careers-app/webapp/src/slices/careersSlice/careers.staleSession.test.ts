@@ -30,9 +30,8 @@ import * as api from "@utils/profileService";
 
 // The config reads window.config when it loads, which does not exist in these tests.
 vi.mock("@config/config", () => ({
-  AppConfig: { serviceUrls: { candidates: "", jobs: "", applications: "" } },
+  AppConfig: { serviceUrls: { candidates: "", applications: "" } },
   ServiceBaseUrl: "",
-  UseMockProfile: false,
 }));
 
 vi.mock("@utils/profileService", () => ({
@@ -40,7 +39,6 @@ vi.mock("@utils/profileService", () => ({
   fetchProfile: vi.fn(),
   saveProfile: vi.fn(),
   fetchApplications: vi.fn(),
-  submitFeedback: vi.fn(),
   respondToOffer: vi.fn(),
 }));
 
@@ -58,7 +56,6 @@ const previousApplication: Application = {
   id: "a1",
   jobId: "1",
   jobTitle: "Engineer",
-  department: "Engineering",
   appliedDate: "2026-09-01",
   status: ApplicationStatus.Offer,
 };
@@ -133,8 +130,8 @@ describe("requests that finish after the candidate's data is cleared", () => {
     expect(store.getState().careers.profile.firstName).toBe("");
   });
 
-  it("drops an offer answer that finishes after the data was cleared", async () => {
-    const request = deferred<Application>();
+  it("does not ask to sign in again when an offer answer of a cleared session is refused", async () => {
+    const request = deferred<void>();
     vi.mocked(api.respondToOffer).mockReturnValue(request.promise);
     const store = newStore();
 
@@ -142,10 +139,10 @@ describe("requests that finish after the candidate's data is cleared", () => {
       respondToOffer({ accessToken: "token", applicationId: "a1", answer: { response: "accepted" } }),
     );
     store.dispatch(clearUserData());
-    request.resolve({ ...previousApplication, status: ApplicationStatus.OfferAccepted });
+    request.reject(Object.assign(new Error("Your session has ended."), { name: "SessionExpiredError" }));
     await done;
 
-    expect(store.getState().careers.applications).toEqual([]);
+    expect(store.getState().careers.sessionExpired).toBe(false);
   });
 
   it("does not mark the page failed or ask to sign in again when a cleared request fails", async () => {

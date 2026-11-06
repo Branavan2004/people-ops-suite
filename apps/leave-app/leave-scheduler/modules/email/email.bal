@@ -61,3 +61,69 @@ public isolated function sendSabbaticalReminder(SabbaticalReminderDetails detail
         return error(string `Email service responded with HTTP ${response.statusCode}`);
     }
 }
+
+# Send the approval reminder to the lead, with no CC.
+#
+# + details - Reminder details
+# + return - Error if the email could not be sent
+public isolated function sendApprovalReminder(ApprovalReminderDetails details) returns error? {
+    string startDate = formatDisplayDate(details.startDate);
+    string endDate = formatDisplayDate(details.endDate);
+    string template = check bindKeyValues(approvalReminderTemplate, {
+        LEAD_NAME: details.leadName,
+        EMPLOYEE_NAME: details.employeeName,
+        LEAVE_START_DATE: startDate,
+        LEAVE_END_DATE: endDate,
+        LEAVE_DAYS: formatDays(details.numberOfDays),
+        DAYS_WAITING: formatDays(details.daysWaiting),
+        START_NOTE: details.hasStarted
+            ? "The leave has already started, so please review it as soon as possible."
+            : "Please review it before the leave starts.",
+        APPROVAL_URL: details.approvalUrl,
+        YEAR: time:utcToCivil(time:utcNow()).year.toString()
+    });
+
+    EmailPayload payload = {
+        to: isDebug ? debugRecipients : [details.leadEmail],
+        'from: emailServiceConfig.'from,
+        subject: string `[Leave App] Other Authorized Leave Awaiting Your Approval - ${details.employeeName} (${
+            startDate} - ${endDate})`,
+        template
+    };
+
+    http:Response response = check emailClient->/send\-email.post(payload);
+    if response.statusCode != http:STATUS_OK {
+        return error(string `Email service responded with HTTP ${response.statusCode}`);
+    }
+}
+
+# Alert People Operations that a pending leave has no lead in HR to approve it: HR has no lead for the employee, or
+# no longer has the employee.
+#
+# + details - Alert details
+# + return - Error if the email could not be sent
+public isolated function sendNoLeadAlert(NoLeadAlertDetails details) returns error? {
+    string startDate = formatDisplayDate(details.startDate);
+    string endDate = formatDisplayDate(details.endDate);
+    string template = check bindKeyValues(noLeadAlertTemplate, {
+        EMPLOYEE_NAME: details.employeeName,
+        EMPLOYEE_EMAIL: details.employeeEmail,
+        LEAVE_START_DATE: startDate,
+        LEAVE_END_DATE: endDate,
+        DAYS_WAITING: formatDays(details.daysWaiting),
+        YEAR: time:utcToCivil(time:utcNow()).year.toString()
+    });
+
+    EmailPayload payload = {
+        to: isDebug ? debugRecipients : emailServiceConfig.peopleOperationsRecipients,
+        'from: emailServiceConfig.'from,
+        subject: string `[Leave App] No Lead in HR to Approve Leave - ${details.employeeName} (${
+            startDate} - ${endDate})`,
+        template
+    };
+
+    http:Response response = check emailClient->/send\-email.post(payload);
+    if response.statusCode != http:STATUS_OK {
+        return error(string `Email service responded with HTTP ${response.statusCode}`);
+    }
+}

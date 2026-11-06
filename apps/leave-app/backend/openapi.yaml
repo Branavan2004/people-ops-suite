@@ -178,6 +178,50 @@ paths:
           description: InternalServerError
         "403":
           description: Forbidden
+  /leaves/sick-leave:
+    post:
+      summary: |-
+        Submit sick leave in France with its sick note, in one JSON request.
+
+        `leave` carries the leave, as for `POST /leaves`, and `sickNote` carries a PDF, JPG or PNG file of at most 5 MB
+        as base64 text. The leave and the encrypted note are saved in one transaction. Date previews
+        (`isValidationOnlyMode`) stay on `POST /leaves`.
+      operationId: postLeavesSickLeave
+      requestBody:
+        description: The leave and the sick note as base64 text
+        content:
+          application/json:
+            schema:
+              required:
+              - leave
+              - sickNote
+              type: object
+              properties:
+                leave:
+                  $ref: '#/components/schemas/LeavePayload'
+                sickNote:
+                  type: string
+                  description: PDF, JPG or PNG file of at most 5 MB, as base64 text without a `data:` prefix. The server
+                    checks the file content
+                  format: byte
+              additionalProperties: false
+        required: true
+      responses:
+        "200":
+          description: Ok
+        "400":
+          description: BadRequest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorPayload'
+        "401":
+          description: Unauthorized
+        "413":
+          description: PayloadTooLarge. The request is, or declares, more than the base64 of a 5 MB sick note plus 1 MB
+            (about 7.7 MB)
+        "500":
+          description: InternalServerError
   /leaves/on-behalf:
     post:
       summary: |-
@@ -249,6 +293,91 @@ paths:
           description: InternalServerError
         "403":
           description: Forbidden
+  /leaves/{id}/sick-note:
+    get:
+      summary: Download the sick note of a leave. Only the applicant and members of `sickNoteRoles` may download it,
+        and every download is recorded.
+      operationId: getLeavesIdSickNote
+      parameters:
+      - name: id
+        in: path
+        description: Leave ID
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          description: Ok
+          headers:
+            Content-Disposition:
+              description: attachment; filename="sick-note-<id>.<pdf|jpg|png>"
+              schema:
+                type: string
+            Cache-Control:
+              description: no-store
+              schema:
+                type: string
+            X-Content-Type-Options:
+              description: nosniff
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: NotFound
+        "403":
+          description: Forbidden
+        "500":
+          description: InternalServerError
+  /sick-notes:
+    get:
+      summary: List sick leaves in France that have a sick note and overlap the given dates, newest first. Only for
+        members of `sickNoteRoles`.
+      operationId: getSickNotes
+      parameters:
+      - name: startDate
+        in: query
+        description: Start of the date range
+        required: true
+        schema:
+          type: string
+      - name: endDate
+        in: query
+        description: End of the date range, inclusive
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SickNoteSummary'
+        "400":
+          description: BadRequest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorPayload'
+        "403":
+          description: Forbidden
+        "500":
+          description: InternalServerError
   /employees:
     get:
       summary: Fetch all the employees.
@@ -435,7 +564,7 @@ paths:
                 $ref: '#/components/schemas/ErrorPayload'
   /leaves/{id}/{action}:
     post:
-      summary: Approve / Reject the sabbatical leave application request.
+      summary: Approve / Reject a leave request that needs the lead's approval (sabbatical or Other Authorized Leave).
       operationId: postLeavesIdAction
       parameters:
       - name: id
@@ -449,6 +578,13 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/Action'
+      requestBody:
+        description: Optional decision payload. A reason is required to reject Other Authorized Leave
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionPayload'
+        required: false
       responses:
         "200":
           description: Ok
@@ -480,6 +616,8 @@ components:
       - sabbaticalLeaveMinJobBand
       - sabbaticalLeavePolicyUrl
       - sabbaticalLeaveUserGuideUrl
+      - sickNoteContentTypes
+      - sickNoteMaxBytes
       type: object
       properties:
         isSabbaticalLeaveEnabled:
@@ -513,6 +651,15 @@ components:
             configuration needs no UI change.
           items:
             $ref: '#/components/schemas/LeaveType'
+        sickNoteMaxBytes:
+          type: integer
+          description: Largest sick note accepted, in bytes
+          format: int64
+        sickNoteContentTypes:
+          type: array
+          description: Content types accepted for a sick note
+          items:
+            type: string
       additionalProperties: false
       description: Application configurations.
     BasicEmployeeInfo:
@@ -560,6 +707,15 @@ components:
             $ref: '#/components/schemas/Holiday'
       additionalProperties: false
       description: Calculated leave.
+    DecisionPayload:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Reason for the rejection. Required to reject Other Authorized Leave; not used otherwise
+          nullable: true
+      additionalProperties: false
+      description: Payload for approving or rejecting a leave request.
     DefaultMail:
       required:
       - email
@@ -679,6 +835,7 @@ components:
       - notifyEveryone
       - numberOfDays
       - periodType
+      - rejectionReason
       - startDate
       - startHalf
       - status
@@ -777,6 +934,17 @@ components:
         approverEmail:
           type: string
           description: Approver email
+          nullable: true
+        rejectionReason:
+          type: string
+          description: Reason given by the approver for rejecting the leave
+          nullable: true
+        hasSickNote:
+          type: boolean
+          description: Whether a sick note was submitted with the leave
+        sickNoteDeletedOn:
+          type: string
+          description: When the sick note was deleted, if it was
           nullable: true
       additionalProperties: false
       description: "[Database] Leave type."
@@ -892,6 +1060,8 @@ components:
       - annual
       - sick
       - casual
+      - compassionate
+      - other_authorized
     MinimalEmployeeInfo:
       type: object
       description: Minimal Employee information.
@@ -1004,6 +1174,55 @@ components:
           description: Admin view or not
       additionalProperties: false
       description: Report generation payload.
+    SickNoteSummary:
+      required:
+      - contentType
+      - deletedAt
+      - email
+      - endDate
+      - leaveId
+      - numberOfDays
+      - sizeBytes
+      - startDate
+      - status
+      - uploadedAt
+      type: object
+      properties:
+        leaveId:
+          type: integer
+          description: Leave ID
+          format: int64
+        email:
+          type: string
+          description: Email of the employee
+        startDate:
+          type: string
+          description: Leave start date
+        endDate:
+          type: string
+          description: Leave end date
+        numberOfDays:
+          type: number
+          description: Number of leave days
+          format: float
+        status:
+          $ref: '#/components/schemas/Status'
+        uploadedAt:
+          type: string
+          description: When the note was uploaded
+        deletedAt:
+          type: string
+          description: When the note was deleted, if it was
+          nullable: true
+        sizeBytes:
+          type: integer
+          description: Size of the original file, in bytes
+          format: int64
+        contentType:
+          type: string
+          description: Content type of the original file
+      additionalProperties: false
+      description: Sick leave in France with a sick note, as listed for People Ops. Holds no note content.
     Status:
       type: string
       description: Status of the leave.

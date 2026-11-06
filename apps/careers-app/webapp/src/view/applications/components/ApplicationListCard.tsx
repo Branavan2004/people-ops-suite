@@ -14,12 +14,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Card, CardContent, Stack, Typography } from "@mui/material";
-import { ArrowRight } from "lucide-react";
+import { Box, Card, CardContent, Stack, Typography } from "@wso2/oxygen-ui";
+import { ArrowRight } from "@wso2/oxygen-ui-icons-react";
 
 import type { Application } from "@/types/types";
 import ApplicationStatusBadge from "@component/careers/ApplicationStatusBadge";
-import { daysLeftText, isOffer, offerDeadlineOf, timeAgo } from "@view/applications/applicationHelpers";
+import { isOffer, offerDeadlineOf, timeAgo } from "@view/applications/applicationHelpers";
 
 interface ApplicationListCardProps {
   application: Application;
@@ -29,8 +29,8 @@ interface ApplicationListCardProps {
 // One application in the list.
 const ApplicationListCard = ({ application, onView }: ApplicationListCardProps) => {
   const updated = application.updatedDate ?? (application.timeline ?? []).at(-1)?.date ?? application.appliedDate;
-  const deadline = isOffer(application) ? offerDeadlineOf(application) : null;
-  const actionNeeded = isOffer(application) && (deadline === null || deadline.daysLeft >= 0);
+  const actionNeeded = isOffer(application);
+  const deadline = actionNeeded ? offerDeadlineOf(application) : null;
 
   return (
     <Card
@@ -68,7 +68,7 @@ const ApplicationListCard = ({ application, onView }: ApplicationListCardProps) 
           <ApplicationStatusBadge status={application.status} />
           {actionNeeded && (
             <Typography fontSize="0.8rem" fontWeight={700} sx={{ color: "primary.main" }}>
-              Action needed{deadline ? ` · ${daysLeftText(deadline.daysLeft)}` : ""}
+              Action needed{deadline ? ` · respond by ${deadline.date}` : ""}
             </Typography>
           )}
         </Stack>

@@ -28,9 +28,9 @@ final mysql:Client leaveDbClient = check initializeLeaveClient();
 # + return - List of Leaves or an error on failure
 public isolated function getLeaves(LeaveFilter filter, int? 'limit = (), int? offset = ()) returns Leave[]|error {
     sql:ParameterizedQuery sqlQuery = getLeavesQuery(filter, getValidatedLimit('limit), getValidatedOffset(offset));
-    stream<Leave, sql:Error?> resultStream = leaveDbClient->query(sqlQuery);
-    return from Leave leave in resultStream
-        select leave;
+    stream<LeaveRow, sql:Error?> resultStream = leaveDbClient->query(sqlQuery);
+    return from LeaveRow leave in resultStream
+        select toLeave(leave);
 }
 
 # Get a leave from database with the given id.
@@ -40,7 +40,7 @@ public isolated function getLeaves(LeaveFilter filter, int? 'limit = (), int? of
 public isolated function getLeave(int id) returns Leave|error? {
     sql:ParameterizedQuery mainQuery = getCommonLeaveQuery();
     sql:ParameterizedQuery finalQuery = sql:queryConcat(mainQuery, ` WHERE id = ${id}`);
-    Leave|error leave = leaveDbClient->queryRow(finalQuery);
+    LeaveRow|error leave = leaveDbClient->queryRow(finalQuery);
     if leave is sql:NoRowsError {
         return ();
     }
@@ -48,7 +48,7 @@ public isolated function getLeave(int id) returns Leave|error? {
         return error("Error occurred while fetching leave!", leave);
     }
 
-    return leave;
+    return toLeave(leave);
 }
 
 # Create a new leave in the database.
@@ -73,6 +73,94 @@ public isolated function insertLeave(LeaveInput input, float numDaysForLeave, st
     return insertedLeave;
 }
 
+# Create a new leave and its sick note in one transaction: both are saved, or neither.
+#
+# + input - Input data for the leave
+# + numDaysForLeave - Number of days for leave
+# + location - Employee location
+# + sickNote - Encrypted sick note
+# + return - The inserted Leave record if successful; otherwise, an error
+public isolated function insertLeaveWithSickNote(LeaveInput input, float numDaysForLeave, string location,
+        SickNoteInput sickNote) returns Leave|error {
+
+    int leaveId;
+    transaction {
+        sql:ExecutionResult result = check leaveDbClient->execute(insertLeaveQuery(input, numDaysForLeave, location));
+        leaveId = check result.lastInsertId.ensureType();
+        _ = check leaveDbClient->execute(insertSickNoteQuery(leaveId, sickNote));
+        check commit;
+    } on fail error err {
+        return error("Error occurred while inserting leave with sick note!", err);
+    }
+    Leave|error? insertedLeave = getLeave(leaveId);
+    if insertedLeave is () {
+        return error("Inserted leave not found after insertion");
+    }
+    if insertedLeave is error {
+        return error("Error occurred while fetching inserted leave!", insertedLeave);
+    }
+    return insertedLeave;
+}
+
+# Get the details of a leave's sick note, without its content, so access can be checked before the file is read.
+#
+# + leaveId - Leave ID
+# + return - The sick note details, nil if the leave has none, or an error on failure
+public isolated function getSickNote(int leaveId) returns StoredSickNote|error? {
+    StoredSickNote|error sickNote = leaveDbClient->queryRow(getSickNoteQuery(leaveId));
+    if sickNote is sql:NoRowsError {
+        return ();
+    }
+    if sickNote is error {
+        return error("Error occurred while fetching the sick note!", sickNote);
+    }
+    return sickNote;
+}
+
+# Get the encrypted content of a sick note.
+#
+# + attachmentId - ID of the sick note attachment
+# + return - The encrypted content, nil if the attachment does not exist, or an error on failure
+public isolated function getSickNoteContent(int attachmentId) returns SickNoteContent|error? {
+    SickNoteContent|error content = leaveDbClient->queryRow(getSickNoteContentQuery(attachmentId));
+    if content is sql:NoRowsError {
+        return ();
+    }
+    if content is error {
+        return error("Error occurred while fetching the sick note content!", content);
+    }
+    return content;
+}
+
+# Record that a user downloaded a sick note.
+#
+# + attachmentId - ID of the sick note attachment
+# + leaveId - ID of the leave the note belongs to
+# + downloadedBy - Email of the user who downloaded the note
+# + return - Nil on success, or an error on failure
+public isolated function recordSickNoteDownload(int attachmentId, int leaveId, string downloadedBy) returns error? {
+    sql:ExecutionResult|sql:Error result = leaveDbClient->execute(
+            recordSickNoteDownloadQuery(attachmentId, leaveId, downloadedBy));
+    if result is sql:Error {
+        return error("Error occurred while recording the sick note download!", result);
+    }
+}
+
+# Get the sick leaves in France that have a sick note and overlap the given dates, newest first.
+#
+# + startDate - Start of the date range (yyyy-mm-dd)
+# + endDate - End of the date range (yyyy-mm-dd), inclusive
+# + return - Sick note summaries, or an error on failure
+public isolated function getSickNotes(string startDate, string endDate) returns SickNoteSummary[]|error {
+    stream<SickNoteSummary, sql:Error?> resultStream = leaveDbClient->query(getSickNotesQuery(startDate, endDate));
+    SickNoteSummary[]|sql:Error sickNotes = from SickNoteSummary sickNote in resultStream
+        select sickNote;
+    if sickNotes is sql:Error {
+        return error("Error occurred while fetching sick notes!", sickNotes);
+    }
+    return sickNotes;
+}
+
 # Cancel an existing active leave.
 #
 # + id - Leave ID  
@@ -94,6 +182,55 @@ public isolated function setLeaveStatus(int leaveId, Status approvalStatus, stri
 
     sql:ParameterizedQuery sqlQuery = setLeaveStatusQuery(approvalStatus, leaveId, approverEmail);
     return check leaveDbClient->execute(sqlQuery);
+}
+
+# Reject a pending leave request, storing the approver and the reason.
+#
+# + leaveId - Leave ID
+# + approverEmail - Email of the approver rejecting the request
+# + reason - Reason for the rejection, or nil when none is given
+# + return - Nil on success, `LeaveNotPendingError` if the leave is no longer pending, or an error on failure
+public isolated function rejectLeave(int leaveId, string approverEmail, string? reason) returns error? {
+    sql:ExecutionResult|sql:Error result = leaveDbClient->execute(rejectLeaveQuery(leaveId, approverEmail, reason));
+    if result is sql:Error {
+        return error("Error occurred while rejecting leave!", result);
+    }
+    if result.affectedRowCount == 0 {
+        return error LeaveNotPendingError(ERR_MSG_LEAVE_NOT_PENDING);
+    }
+}
+
+# Approve a pending leave request, storing the approver and the calendar event ID in the same update.
+#
+# + leaveId - Leave ID
+# + approverEmail - Email of the approver approving the request
+# + calendarEventId - ID of the calendar event to be created for the leave
+# + return - Nil on success, `LeaveNotPendingError` if the leave is no longer pending, or an error on failure
+public isolated function approvePendingLeave(int leaveId, string approverEmail, string calendarEventId)
+    returns error? {
+
+    sql:ExecutionResult|sql:Error result = leaveDbClient->execute(
+            approvePendingLeaveQuery(leaveId, approverEmail, calendarEventId));
+    if result is sql:Error {
+        return error("Error occurred while approving leave!", result);
+    }
+    if result.affectedRowCount == 0 {
+        return error LeaveNotPendingError(ERR_MSG_LEAVE_NOT_PENDING);
+    }
+}
+
+# Cancel a leave request only while it is pending.
+#
+# + leaveId - Leave ID
+# + return - Nil on success, `LeaveNotPendingError` if the leave is no longer pending, or an error on failure
+public isolated function cancelPendingLeave(int leaveId) returns error? {
+    sql:ExecutionResult|sql:Error result = leaveDbClient->execute(cancelPendingLeaveQuery(leaveId));
+    if result is sql:Error {
+        return error("Error occurred while cancelling leave!", result);
+    }
+    if result.affectedRowCount == 0 {
+        return error LeaveNotPendingError(ERR_MSG_LEAVE_NOT_PENDING);
+    }
 }
 
 # Get the end date of the last sabbatical leave for an employee.

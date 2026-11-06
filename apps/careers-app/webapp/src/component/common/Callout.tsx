@@ -14,8 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Stack } from "@mui/material";
-import type { SxProps, Theme } from "@mui/material/styles";
+import { Box, Stack } from "@wso2/oxygen-ui";
+import type { SxProps, Theme } from "@wso2/oxygen-ui";
 
 import { BRAND_TINT } from "@config/brand";
 

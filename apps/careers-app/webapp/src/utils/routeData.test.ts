@@ -19,9 +19,6 @@ import { describe, expect, it } from "vitest";
 import { type RouteData, dataNeededBy } from "@utils/routeData";
 
 const none: RouteData = {
-  jobs: false,
-  orgStructure: false,
-  jobDetails: false,
   applications: false,
   profile: false,
 };
@@ -33,9 +30,8 @@ describe("dataNeededBy", () => {
   });
 
   it("needs what the matched route declares", () => {
-    expect(dataNeededBy([{ handle: { needs: ["jobs", "applications"] } }])).toEqual({
+    expect(dataNeededBy([{ handle: { needs: ["applications"] } }])).toEqual({
       ...none,
-      jobs: true,
       applications: true,
     });
   });
@@ -45,8 +41,8 @@ describe("dataNeededBy", () => {
       dataNeededBy([
         { handle: { needs: ["profile"] } },
         { handle: undefined },
-        { handle: { needs: ["jobs"] } },
+        { handle: { needs: ["applications"] } },
       ]),
-    ).toEqual({ ...none, profile: true, jobs: true });
+    ).toEqual({ applications: true, profile: true });
   });
 });

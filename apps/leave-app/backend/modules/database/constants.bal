@@ -23,3 +23,9 @@ public const DEFAULT_LIMIT = 100;
 # Upper limit of the page size value. A specified page size value should be less than 1000. If a greater than
 # 1000 value is specified the limit will be set to 1000.
 public const UPPER_LIMIT = 1000;
+
+# Message returned when a leave request can no longer be approved or rejected.
+public const ERR_MSG_LEAVE_NOT_PENDING = "This request is no longer pending.";
+
+# Employee location whose sick leave carries a sick note.
+const FRANCE = "France";

@@ -18,6 +18,7 @@ import EditCalendarIcon from "@mui/icons-material/EditCalendar";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import HistoryIcon from "@mui/icons-material/History";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
+import LocalHospitalIcon from "@mui/icons-material/LocalHospital";
 import WorkHistoryIcon from "@mui/icons-material/WorkHistory";
 import { type RouteObject } from "react-router-dom";
 import { Navigate } from "react-router-dom";
@@ -28,12 +29,14 @@ import OutletWrapper from "@component/common/OutletWrapper";
 import { Role } from "@slices/authSlice/auth";
 import { isIncludedRole } from "@utils/utils";
 import RecordEmployeeLeave from "@view/EmployeeLeave/RecordEmployeeLeave";
+import SickNotes from "@view/EmployeeLeave/SickNotes";
 import GeneralLeave from "@view/GeneralLeave/GeneralLeave";
 import AdminSabbaticalTab from "@view/LeadReport/panel/AdminSabbaticalTab";
 import LeadReportTab from "@view/LeadReport/panel/LeadReportTab";
 import SabbaticalLeaveHistory from "@view/LeaveHistory/SabbaticalLeaveHistory";
 import ApproveHistoryTab from "@view/SabbaticalLeave/Panel/ApproveHistoryTab";
 import ApproveLeaveTab from "@view/SabbaticalLeave/Panel/ApproveLeaveTab";
+import OtherAuthorizedApproveTab from "@view/SabbaticalLeave/Panel/OtherAuthorizedApproveTab";
 import SabbaticalLeave from "@view/SabbaticalLeave/SabbaticalLeave";
 
 import type { RouteDetail, RouteObjectWithRole } from "./types/types";
@@ -96,6 +99,13 @@ export const routes: RouteObjectWithMeta[] = [
         allowRoles: [Role.LEAD],
       },
       {
+        path: "other-authorized",
+        text: "Other Authorized",
+        icon: React.createElement(EventAvailableIcon),
+        element: React.createElement(OtherAuthorizedApproveTab),
+        allowRoles: [Role.LEAD],
+      },
+      {
         path: "approval-history",
         text: "Approval History",
         icon: React.createElement(HistoryIcon),
@@ -133,8 +143,9 @@ export const routes: RouteObjectWithMeta[] = [
     text: "Employee Leave",
     icon: React.createElement(EditCalendarIcon),
     element: React.createElement(OutletWrapper),
-    // People Ops only: recording leave for another employee is an admin action.
-    allowRoles: [Role.PEOPLE_OPS_TEAM],
+    // People Ops and sick note readers; each page below narrows it further (recording leave for another
+    // employee is a People Ops action, and Sick Notes is for the sick note roles only).
+    allowRoles: [Role.PEOPLE_OPS_TEAM, Role.SICK_NOTE_READER],
     children: [
       {
         path: "record",
@@ -142,6 +153,13 @@ export const routes: RouteObjectWithMeta[] = [
         icon: React.createElement(EditCalendarIcon),
         element: React.createElement(RecordEmployeeLeave),
         allowRoles: [Role.PEOPLE_OPS_TEAM],
+      },
+      {
+        path: "sick-notes",
+        text: "Sick Notes",
+        icon: React.createElement(LocalHospitalIcon),
+        element: React.createElement(SickNotes),
+        allowRoles: [Role.SICK_NOTE_READER],
       },
     ],
   },

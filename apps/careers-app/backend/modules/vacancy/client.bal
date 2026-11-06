@@ -33,11 +33,6 @@ final http:Client atsHttpClient = check new (atsConfig.baseUrl, {
     timeout: UPSTREAM_TIMEOUT_SECONDS
 });
 
-// Client for applications, which wait longer than reads.
-final http:Client atsApplyHttpClient = check new (atsConfig.baseUrl, {
-    timeout: 90
-});
-
 final http:Client tokenHttpClient = check new (atsConfig.tokenUrl, {
     auth: {
         username: atsConfig.clientId,
@@ -125,22 +120,20 @@ isolated function getWithToken(string path, string requestId) returns http:Respo
         return atsHttpClient->get(path, authHeaders(token, requestId));
     });
 
-# POST to the ATS with automatic token refresh on 401.
-isolated function postWithToken(string path, AtsCandidate payload, string requestId)
-        returns http:Response|error {
-    // A read-only copy, which the retry can send again.
-    final readonly & AtsCandidate body = payload.cloneReadOnly();
-    return withToken(isolated function(string token) returns http:Response|error {
-        return atsApplyHttpClient->post(path, body, authHeaders(token, requestId));
-    });
-}
-
 # PATCH to the ATS with automatic token refresh on 401.
 isolated function patchWithToken(string path, AtsCandidateUpdate payload, string requestId)
         returns http:Response|error {
     final readonly & AtsCandidateUpdate body = payload.cloneReadOnly();
     return withToken(isolated function(string token) returns http:Response|error {
         return atsHttpClient->patch(path, body, authHeaders(token, requestId));
+    });
+}
+
+# POST to the ATS with automatic token refresh on 401.
+isolated function postWithToken(string path, json payload, string requestId) returns http:Response|error {
+    final readonly & json body = payload.cloneReadOnly();
+    return withToken(isolated function(string token) returns http:Response|error {
+        return atsHttpClient->post(path, body, authHeaders(token, requestId));
     });
 }
 
@@ -181,192 +174,6 @@ isolated function okReply(json body) returns http:Response {
     return resp;
 }
 
-// The query for the vacancies listed on the public site, optionally of one designation and employment type.
-isolated function vacancyQuery(int? designationId, string? employmentType) returns string|error {
-    string query = "status=PUBLISHED";
-    foreach string visibility in [VISIBILITY_ALL, VISIBILITY_EXTERNAL_ONLY] {
-        query += "&visibility=" + check url:encode(visibility, "UTF-8");
-    }
-    if designationId is int {
-        query += "&designationId=" + designationId.toString();
-    }
-    if employmentType is string {
-        query += "&employmentType=" + check url:encode(employmentType, "UTF-8");
-    }
-    return query;
-}
-
-// The published vacancies listed on the public site, optionally of one designation and employment type.
-isolated function publishedVacancies(string requestId, int? designationId = (), string? employmentType = ())
-        returns AtsVacancy[]|error {
-    string query = check vacancyQuery(designationId, employmentType);
-    json body = check atsJson("/vacancies?" + query, requestId);
-    return vacanciesOf(body, requestId);
-}
-
-// The vacancies in the ATS list reply; one that cannot be read is skipped, so it cannot hide the others.
-isolated function vacanciesOf(json body, string requestId) returns AtsVacancy[]|error {
-    json items = body is map<json> ? body["vacancies"] : ();
-    if items !is json[] {
-        return error("The ATS vacancy list could not be read");
-    }
-    // The ATS returns at most its default page (1000) when no limit is sent, and reports the full count beside it.
-    json total = body is map<json> ? body["totalCount"] : ();
-    if total is int && total > items.length() {
-        log:printWarn("The ATS vacancy list is cut short; some published vacancies are not listed",
-            listed = items.length(), total = total, requestId = requestId);
-    }
-    AtsVacancy[] vacancies = [];
-    foreach json item in items {
-        AtsVacancy|error vacancy = item.fromJsonWithType();
-        if vacancy is error {
-            json id = item is map<json> ? item["id"] : ();
-            log:printWarn("Skipped a vacancy that could not be read", vacancyId = id is int ? id : 0,
-                requestId = requestId);
-            continue;
-        }
-        vacancies.push(vacancy);
-    }
-    return vacancies;
-}
-
-isolated function fetchVacancy(string jobId, string requestId) returns AtsVacancy|error {
-    json body = check atsJson("/vacancies/" + jobId, requestId);
-    return body.fromJsonWithType();
-}
-
-isolated function orgDetails(string requestId) returns AtsBusinessUnit[]|error {
-    json body = check atsJson("/org-details", requestId);
-    return body.fromJsonWithType();
-}
-
-isolated function companies(string requestId) returns AtsCompany[]|error {
-    json body = check atsJson("/companies", requestId);
-    return body.fromJsonWithType();
-}
-
-isolated function careerFunctions(string requestId) returns AtsCareerFunction[]|error {
-    json body = check atsJson("/career-functions", requestId);
-    return body.fromJsonWithType();
-}
-
-isolated function appConfig(string requestId) returns AtsAppConfig|error {
-    json body = check atsJson("/app-config", requestId);
-    return body.fromJsonWithType();
-}
-
-isolated function loadJobList(string requestId) returns VacancyBasicInfo[]|error {
-    // The two reads run together.
-    future<AtsVacancy[]|error> vacanciesRead = start publishedVacancies(requestId);
-    future<AtsBusinessUnit[]|error> unitsRead = start orgDetails(requestId);
-    AtsVacancy[]|error vacancies = wait vacanciesRead;
-    AtsBusinessUnit[]|error units = wait unitsRead;
-    if vacancies is error {
-        return vacancies;
-    }
-    if units is error {
-        return units;
-    }
-    return from AtsVacancy vacancy in vacancies
-        select basicInfoOf(vacancy, units);
-}
-
-isolated function loadOrgStructure(string requestId) returns OrgStructure|error {
-    future<AtsCompany[]|error> companiesRead = start companies(requestId);
-    future<AtsBusinessUnit[]|error> unitsRead = start orgDetails(requestId);
-    future<AtsAppConfig|error> configRead = start appConfig(requestId);
-    AtsCompany[]|error allCompanies = wait companiesRead;
-    AtsBusinessUnit[]|error units = wait unitsRead;
-    AtsAppConfig|error config = wait configRead;
-    if allCompanies is error {
-        return allCompanies;
-    }
-    if units is error {
-        return units;
-    }
-    if config is error {
-        log:printError("Could not read the ATS app config", config, requestId = requestId);
-    }
-    return orgStructureOf(allCompanies, units, config is AtsAppConfig ? config : ());
-}
-
-// Whether the vacancy is published and visible to candidates.
-isolated function isOpenToApply(AtsVacancy vacancy) returns boolean =>
-    vacancy.status == STATUS_PUBLISHED && vacancy.visibility != VISIBILITY_INTERNAL_ONLY;
-
-isolated function loadJobDetail(string jobId, string requestId) returns JobDetail|error {
-    AtsVacancy vacancy = check fetchVacancy(jobId, requestId);
-    if !isOpenToApply(vacancy) {
-        return error UpstreamError("The vacancy is not published", status = http:STATUS_BAD_REQUEST);
-    }
-    do {
-        // The reads below run together once the vacancy is known.
-        future<AtsCompany[]|error> companiesRead = start companies(requestId);
-        future<AtsBusinessUnit[]|error> unitsRead = start orgDetails(requestId);
-        future<AtsCareerFunction[]|error> functionsRead = start careerFunctions(requestId);
-        future<AtsVacancy[]> similarRead = start similarVacancies(vacancy.designationId, vacancy.employmentType,
-            requestId);
-        AtsCompany[] allCompanies = check wait companiesRead;
-        AtsBusinessUnit[] units = check wait unitsRead;
-        AtsCareerFunction[] functions = check wait functionsRead;
-        AtsVacancy[]|error similarResult = wait similarRead;
-        AtsVacancy[] similar = similarResult is AtsVacancy[] ? similarResult : [];
-        return detailOf(vacancy, allCompanies, units, functions, similar);
-    } on fail error err {
-        return asLookupFailure(err);
-    }
-}
-
-// A refused lookup that only supports the job page is a bad gateway, not a statement about the job itself.
-isolated function asLookupFailure(error err) returns error =>
-    err is UpstreamError ? error UpstreamError("A lookup for the job failed", status = http:STATUS_BAD_GATEWAY) : err;
-
-// The other vacancies like this one; none when the lookup fails.
-isolated function similarVacancies(int designationId, string employmentType, string requestId) returns AtsVacancy[] {
-    AtsVacancy[]|error similar = publishedVacancies(requestId, designationId, employmentType);
-    if similar is error {
-        log:printWarn("Could not read the similar vacancies", similar, requestId = requestId);
-        return [];
-    }
-    return similar;
-}
-
-isolated function candidateFor(string jobId, CandidateApplication candidate, string requestId)
-        returns AtsCandidate|error {
-    int|error vacancyId = int:fromString(jobId);
-    if vacancyId is error {
-        return error UpstreamError("Invalid vacancy id", status = http:STATUS_BAD_REQUEST);
-    }
-    // Only the vacancy is read.
-    AtsVacancy vacancy = check fetchVacancy(jobId, requestId);
-    if !isOpenToApply(vacancy) {
-        return error UpstreamError("The vacancy is not available", status = http:STATUS_NOT_FOUND);
-    }
-    AtsCandidate|string atsCandidate = atsCandidateOf(candidate, vacancy.employmentType, vacancyId);
-    if atsCandidate is string {
-        return error UpstreamError(atsCandidate, status = http:STATUS_UNPROCESSABLE_ENTITY);
-    }
-    return atsCandidate;
-}
-
-# The published vacancies, in the shape the web app reads.
-public isolated function listJobs(string requestId) returns http:Response|error {
-    VacancyBasicInfo[]|error jobs = loadJobList(requestId);
-    return jobs is error ? failedReply(jobs, requestId) : okReply(jobs.toJson());
-}
-
-# The teams and hiring locations.
-public isolated function getOrgStructure(string requestId) returns http:Response|error {
-    OrgStructure|error org = loadOrgStructure(requestId);
-    return org is error ? failedReply(org, requestId) : okReply(org.toJson());
-}
-
-# One published vacancy, with its similar listings.
-public isolated function getJob(string jobId, string requestId) returns http:Response|error {
-    JobDetail|error detail = loadJobDetail(jobId, requestId);
-    return detail is error ? failedReply(detail, requestId) : okReply(detail.toJson());
-}
-
 isolated function candidateHistory(string email, string requestId) returns AtsHistoryEntry[]|error {
     string path = "/candidates/" + check url:encode(email, "UTF-8") + "/histories?limit=" + MAX_HISTORY_ENTRIES.toString();
     json|error body = atsJson(path, requestId);
@@ -389,6 +196,16 @@ isolated function profileFor(string email, string requestId) returns CandidatePr
     return profile;
 }
 
+// The caller's own application with that id, found in their history; nothing when it is not theirs.
+isolated function ownApplication(AtsHistoryEntry[] history, int id) returns AtsHistoryEntry? {
+    foreach AtsHistoryEntry entry in history {
+        if entry.id == id {
+            return entry;
+        }
+    }
+    return ();
+}
+
 # The candidate's full name, first and last name as saved in their profile, when the application is one of their own
 # and its offer is accepted; nothing otherwise. One read of the history answers both.
 public isolated function acceptedApplicantName(string email, string applicationId, string requestId)
@@ -398,16 +215,12 @@ public isolated function acceptedApplicantName(string email, string applicationI
         return ();
     }
     AtsHistoryEntry[] history = check candidateHistory(email, requestId);
-    foreach AtsHistoryEntry entry in history {
-        if entry.id == id {
-            CandidateProfile? profile = profileOf(history, email);
-            if entry.status != CANDIDATE_STATUS_HIRED || profile is () {
-                return ();
-            }
-            return string:'join(" ", profile.firstName, profile.lastName).trim();
-        }
+    AtsHistoryEntry? entry = ownApplication(history, id);
+    CandidateProfile? profile = profileOf(history, email);
+    if entry is () || entry.offerStatus != OFFER_STATUS_ACCEPTED || profile is () {
+        return ();
     }
-    return ();
+    return string:'join(" ", profile.firstName, profile.lastName).trim();
 }
 
 isolated function profileReplyOf(CandidateProfile|error profile, string requestId) returns http:Response|error =>
@@ -420,7 +233,7 @@ public isolated function getProfile(string email, string requestId) returns http
 # The candidate's applications, newest first.
 public isolated function listApplications(string email, string requestId) returns ApplicationSummary[]|error {
     AtsHistoryEntry[] history = check candidateHistory(email, requestId);
-    return applicationsOf(history, departmentsOf(cachedJobsIfPresent()));
+    return applicationsOf(history);
 }
 
 // The interviews of one of the caller's own applications, found through their email.
@@ -430,16 +243,14 @@ isolated function interviewsFor(string email, string applicationId, string reque
     if id is error {
         return error UpstreamError("Application not found", status = http:STATUS_NOT_FOUND);
     }
-    AtsHistoryEntry[] history = check candidateHistory(email, requestId);
-    foreach AtsHistoryEntry entry in history {
-        if entry.id == id && entry.status != CANDIDATE_STATUS_DELETED {
-            json body = check atsJson(string `/interviews?status=SCHEDULED&status=COMPLETED&status=WITHDRAWN&candidateVacancyId=${entry.id}&limit=${MAX_INTERVIEWS}`,
-                requestId);
-            AtsInterviewResponse reply = check body.fromJsonWithType();
-            return interviewsOf(reply.interviews);
-        }
+    AtsHistoryEntry? entry = ownApplication(check candidateHistory(email, requestId), id);
+    if entry is () || entry.status == CANDIDATE_STATUS_DELETED {
+        return error UpstreamError("Application not found", status = http:STATUS_NOT_FOUND);
     }
-    return error UpstreamError("Application not found", status = http:STATUS_NOT_FOUND);
+    json body = check atsJson(string `/interviews?status=SCHEDULED&status=COMPLETED&status=WITHDRAWN&candidateVacancyId=${entry.id}&limit=${MAX_INTERVIEWS}`,
+        requestId);
+    AtsInterviewResponse reply = check body.fromJsonWithType();
+    return interviewsOf(reply.interviews);
 }
 
 # The interviews of one of the caller's own applications; a 404 reply when it is not theirs.
@@ -449,39 +260,6 @@ public isolated function getInterviews(string email, string applicationId, strin
     return interviews is error ? failedReply(interviews, requestId) : okReply(interviews.toJson());
 }
 
-// The offer letter of one of the caller's own applications, found through their email.
-isolated function offerLetterFor(string email, string applicationId, string requestId) returns OfferLetter|error {
-    int|error id = int:fromString(applicationId);
-    if id is error {
-        return error UpstreamError("Application not found", status = http:STATUS_NOT_FOUND);
-    }
-    AtsHistoryEntry[] history = check candidateHistory(email, requestId);
-    foreach AtsHistoryEntry entry in history {
-        if entry.id == id && entry.status != CANDIDATE_STATUS_DELETED {
-            json body = check atsJson(string `/candidates/${entry.candidateId}/vacancies/${entry.id}/offer-letter`,
-                requestId);
-            AtsOfferLetter letter = check body.fromJsonWithType();
-            if letter.htmlContent == "" {
-                return error UpstreamError("No offer letter was found", status = http:STATUS_NOT_FOUND);
-            }
-            return {
-                subject: letter.subject,
-                sentOn: letter.sentOn,
-                threadId: letter.threadId ?: "",
-                html: letter.htmlContent
-            };
-        }
-    }
-    return error UpstreamError("Application not found", status = http:STATUS_NOT_FOUND);
-}
-
-# The offer letter sent for one of the caller's own applications; a 404 reply when it is not theirs or has none.
-public isolated function getOfferLetter(string email, string applicationId, string requestId)
-        returns http:Response|error {
-    OfferLetter|error letter = offerLetterFor(email, applicationId, requestId);
-    return letter is error ? failedReply(letter, requestId) : okReply(letter.toJson());
-}
-
 # Whether the application is one of the caller's own, found through their email, and the ATS shows its offer as
 # accepted. An application that is not the caller's gives false, the same as one that is not accepted.
 public isolated function isOfferAccepted(string email, string applicationId, string requestId) returns boolean|error {
@@ -489,13 +267,34 @@ public isolated function isOfferAccepted(string email, string applicationId, str
     if id is error {
         return false;
     }
-    AtsHistoryEntry[] history = check candidateHistory(email, requestId);
-    foreach AtsHistoryEntry entry in history {
-        if entry.id == id {
-            return entry.status == CANDIDATE_STATUS_HIRED;
-        }
+    AtsHistoryEntry? entry = ownApplication(check candidateHistory(email, requestId), id);
+    return entry is AtsHistoryEntry && entry.offerStatus == OFFER_STATUS_ACCEPTED;
+}
+
+# Checks the answer and passes it to the ATS with the caller's email, which the ATS compares with the application's own
+# and refuses with a 404 when they differ. The ATS reply is returned as it is, so its refusals can be told to the
+# candidate.
+public isolated function answerOffer(string email, string applicationId, OfferDecision answer,
+        string[] requestedDocuments, string requestId) returns http:Response|error {
+    string? problem = offerDecisionProblem(answer);
+    if problem is string {
+        return failedReply(error UpstreamError(problem, status = http:STATUS_BAD_REQUEST), requestId);
     }
-    return false;
+    int|error id = int:fromString(applicationId);
+    if id is error {
+        return failedReply(error UpstreamError("Application not found", status = http:STATUS_NOT_FOUND), requestId);
+    }
+    // The ATS compares the email with the application's own, and answers 404 when they differ, so the application does
+    // not need to be found here first.
+    boolean declined = answer.decision == OFFER_STATUS_DECLINED;
+    json body = {
+        candidateEmail: email,
+        decision: answer.decision,
+        declineReason: declined ? (answer.declineReason ?: "").trim() : (),
+        declineReasonAdditional: declined ? (answer.declineReasonAdditional ?: "").trim() : (),
+        requestedDocuments
+    };
+    return postWithToken(string `/candidates/${id}/offer/decision`, body, requestId);
 }
 
 isolated function saveProfile(string email, ProfileChanges changes, string requestId) returns CandidateProfile|error {
@@ -525,22 +324,3 @@ isolated function saveProfile(string email, ProfileChanges changes, string reque
 # Saves the changes to the candidate's details, found through their own email, and returns their profile.
 public isolated function updateProfile(string email, ProfileChanges changes, string requestId)
         returns http:Response|error => profileReplyOf(saveProfile(email, changes, requestId), requestId);
-
-# Creates the candidate in the ATS and returns its reply unchanged.
-public isolated function applyForJob(string jobId, CandidateApplication candidate, string requestId)
-        returns http:Response|error {
-    AtsCandidate|error atsCandidate = candidateFor(jobId, candidate, requestId);
-    if atsCandidate is error {
-        return failedReply(atsCandidate, requestId);
-    }
-    http:Response resp = check postWithToken("/candidates", atsCandidate, requestId);
-    return atsReply(resp);
-}
-
-// The ATS's reply, with a 422 turned into a 400, since only this service's own refusals use 422.
-isolated function atsReply(http:Response resp) returns http:Response {
-    if resp.statusCode == http:STATUS_UNPROCESSABLE_ENTITY {
-        resp.statusCode = http:STATUS_BAD_REQUEST;
-    }
-    return resp;
-}

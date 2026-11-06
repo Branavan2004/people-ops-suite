@@ -54,3 +54,6 @@ type SingleEmployeeResponse record {|
         Employee? employee;
     |} data;
 |};
+
+# Error returned when the HR entity service has no employee with the given email, for example after they left.
+public type EmployeeNotFoundError distinct error;

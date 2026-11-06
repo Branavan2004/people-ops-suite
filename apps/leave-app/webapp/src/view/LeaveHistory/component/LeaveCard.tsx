@@ -15,14 +15,45 @@
 // under the License.
 
 import DeleteIcon from "@mui/icons-material/Delete";
-import { Box, Card, CardContent, IconButton, Stack, Tooltip, Typography, useTheme } from "@mui/material";
+import DownloadIcon from "@mui/icons-material/Download";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  IconButton,
+  Stack,
+  Tooltip,
+  Typography,
+  useTheme,
+} from "@mui/material";
 
 import { useConfirmationModalContext } from "@root/src/context/DialogContext";
-import { ConfirmationType } from "@root/src/types/types";
+import { ConfirmationType, LeaveType, Status } from "@root/src/types/types";
+import { canCancelLeave, canDownloadSickNote, leaveTypeLabel } from "@root/src/utils/leaveRules";
+
+const STATUS_LABELS: Record<Status, string> = {
+  [Status.PENDING]: "Pending",
+  [Status.APPROVED]: "Approved",
+  [Status.REJECTED]: "Rejected",
+  [Status.CANCELLED]: "Cancelled",
+};
+
+const STATUS_COLORS: Record<Status, "warning" | "success" | "error" | "default"> = {
+  [Status.PENDING]: "warning",
+  [Status.APPROVED]: "success",
+  [Status.REJECTED]: "error",
+  [Status.CANCELLED]: "default",
+};
 
 export interface LeaveCardProps {
   id: number;
   type: string;
+  status: Status;
+  rejectionReason: string | null;
+  hasSickNote: boolean;
+  sickNoteDeletedOn: string | null;
   startDate: string;
   endDate: string;
   duration: string;
@@ -30,18 +61,24 @@ export interface LeaveCardProps {
   day: string;
   cancelling: boolean;
   onDelete?: (id: number) => void;
+  onDownloadSickNote?: (id: number) => void;
 }
 
 export default function LeaveCard({
   id,
   duration,
   type,
+  status,
+  rejectionReason,
+  hasSickNote,
+  sickNoteDeletedOn,
   startDate,
   endDate,
   month,
   day,
   cancelling,
   onDelete,
+  onDownloadSickNote,
 }: LeaveCardProps) {
   const theme = useTheme();
   const { showConfirmation } = useConfirmationModalContext();
@@ -57,18 +94,9 @@ export default function LeaveCard({
     );
   };
 
-  const isCancelDisabled = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const leaveStart = new Date(startDate);
-    leaveStart.setHours(0, 0, 0, 0);
-    // Block cancellation if leave start date is more than 30 days in the past
-    const oneMonthMs = 30 * 24 * 60 * 60 * 1000;
-    const diffInMs = leaveStart.getTime() - today.getTime();
-    return diffInMs < -oneMonthMs;
-  };
-
-  const formattedLabel = `${type.charAt(0).toUpperCase() + type.slice(1).toLowerCase()} Leave`;
+  const formattedLabel = leaveTypeLabel(type);
+  const cancellable = canCancelLeave(status, startDate, new Date());
+  const isSick = type === LeaveType.SICK;
 
   return (
     <Card
@@ -98,32 +126,41 @@ export default function LeaveCard({
               >
                 {formattedLabel}
               </Typography>
-              <Tooltip title="Cancel" arrow>
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={handleDelete}
-                    disabled={isCancelDisabled()}
-                    sx={{
-                      width: "32px",
-                      height: "32px",
-                      borderRadius: "4px",
-                      backgroundColor: "transparent",
-                      color: isCancelDisabled()
-                        ? theme.palette.text.disabled
-                        : theme.palette.primary.main,
-                      "&.Mui-disabled": {
-                        color: theme.palette.text.disabled,
-                      },
-                      "&:hover": {
-                        backgroundColor: "transparent",
-                      },
-                    }}
-                  >
-                    <DeleteIcon fontSize="medium" />
-                  </IconButton>
-                </span>
-              </Tooltip>
+              <Stack direction="row" alignItems="center" gap="0.5rem">
+                <Chip
+                  size="small"
+                  label={STATUS_LABELS[status]}
+                  color={STATUS_COLORS[status]}
+                  variant="outlined"
+                />
+                {cancellable && (
+                  <Tooltip title="Cancel" arrow>
+                    <span>
+                      <IconButton
+                        size="small"
+                        aria-label="Cancel leave"
+                        onClick={handleDelete}
+                        disabled={cancelling}
+                        sx={{
+                          width: "32px",
+                          height: "32px",
+                          borderRadius: "4px",
+                          backgroundColor: "transparent",
+                          color: theme.palette.primary.main,
+                          "&.Mui-disabled": {
+                            color: theme.palette.text.disabled,
+                          },
+                          "&:hover": {
+                            backgroundColor: "transparent",
+                          },
+                        }}
+                      >
+                        <DeleteIcon fontSize="medium" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                )}
+              </Stack>
             </Stack>
 
             <Stack direction="row" gap="1rem" alignItems="center">
@@ -206,6 +243,30 @@ export default function LeaveCard({
                 </Typography>
               </Stack>
             </Stack>
+
+            {status === Status.REJECTED && rejectionReason && (
+              <Typography variant="body2" sx={{ color: theme.palette.text.secondary }}>
+                Reason: {rejectionReason}
+              </Typography>
+            )}
+
+            {isSick && canDownloadSickNote(hasSickNote, sickNoteDeletedOn) && (
+              <Box>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<DownloadIcon />}
+                  onClick={() => onDownloadSickNote?.(id)}
+                >
+                  Download sick note
+                </Button>
+              </Box>
+            )}
+            {sickNoteDeletedOn && (
+              <Typography variant="caption" sx={{ color: theme.palette.text.secondary }}>
+                Sick note deleted on {sickNoteDeletedOn.substring(0, 10)}
+              </Typography>
+            )}
           </Stack>
         </Stack>
       </CardContent>

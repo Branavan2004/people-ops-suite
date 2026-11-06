@@ -14,7 +14,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import wso2/careers_app.apply;
 import wso2/careers_app.documents;
 import wso2/careers_app.jwt;
 import wso2/careers_app.types;
@@ -22,12 +21,6 @@ import wso2/careers_app.vacancy;
 
 import ballerina/http;
 import ballerina/log;
-
-configurable string[] allowedOrigins = ?;
-configurable int port = ?;
-
-# Longest piece of an upstream reply written to the log.
-const MAX_LOGGED_REPLY_LENGTH = 200;
 
 # Whether the request declares a body larger than the limit. The listener's own limit still applies to a request
 # that does not declare its length.
@@ -40,152 +33,14 @@ isolated function exceeds(http:Request req, int maxBytes) returns boolean {
     return false;
 }
 
-# Whether the request declares the length of its body. The listener then reads only the declared bytes, which a body
-# sent in chunks does not allow.
-isolated function declaresLength(http:Request req) returns boolean => req.hasHeader(http:CONTENT_LENGTH);
-
-# Passes an upstream JSON response, or maps its failure to a gateway error.
-isolated function forwardOrError(http:Response|error resp, string failureMessage, string requestId)
-        returns json|http:BadGateway|http:GatewayTimeout {
-    if resp is error {
-        log:printError(failureMessage, errorMessage = types:withoutPersonalData(resp.message()), requestId = requestId);
-        return <http:GatewayTimeout>{body: {message: "Upstream service unreachable"}};
-    }
-    if resp.statusCode == 503 || resp.statusCode == 504 {
-        log:printError(string `${failureMessage}: status ${resp.statusCode}`, requestId = requestId);
-        return <http:GatewayTimeout>{body: {message: "Upstream service unreachable"}};
-    }
-    if resp.statusCode != 200 {
-        log:printError(string `${failureMessage}: status ${resp.statusCode}`, requestId = requestId);
-        return <http:BadGateway>{body: {message: failureMessage}};
-    }
-    json|error respBody = resp.getJsonPayload();
-    if respBody is error {
-        log:printError(failureMessage + " (non-JSON body)", errorMessage = types:withoutPersonalData(respBody.message()),
-            requestId = requestId);
-        return <http:BadGateway>{body: {message: failureMessage}};
-    }
-    return respBody;
-}
-
-@http:ServiceConfig {
-    cors: {
-        allowOrigins: allowedOrigins,
-        allowMethods: [http:GET, http:POST, http:PUT, http:OPTIONS, http:PATCH],
-        allowHeaders: [http:CONTENT_TYPE, http:AUTH_HEADER, types:REQUEST_ID_HEADER],
-        allowCredentials: false,
-        maxAge: 84900
-    }
-}
-service http:InterceptableService / on new http:Listener(port, requestLimits = {maxEntityBodySize: documents:MAX_REQUEST_BYTES}) {
+service http:InterceptableService / on new http:Listener(9090, requestLimits = {maxEntityBodySize: documents:MAX_REQUEST_BYTES}) {
 
     function init() {
         log:printInfo("Careers App backend started...");
-        _ = start vacancy:warmUp();
     }
 
     public function createInterceptors() returns http:Interceptor[] =>
         [new types:RequestIdInterceptor(), new jwt:JwtInterceptor(), new jwt:NoStoreInterceptor()];
-
-    # The published job list. Public: no sign-in needed.
-    resource function get jobs(http:RequestContext ctx) returns json|http:BadGateway|http:GatewayTimeout {
-        string requestId = types:requestIdOf(ctx);
-        json|http:Response|error result = vacancy:cachedJobs(requestId);
-        if result is json {
-            return result;
-        }
-        return forwardOrError(result, "Failed to fetch jobs from upstream service", requestId);
-    }
-
-    # The team and location org structure. Public: no sign-in needed.
-    resource function get jobs/org\-structure(http:RequestContext ctx)
-            returns json|http:BadGateway|http:GatewayTimeout {
-        string requestId = types:requestIdOf(ctx);
-        json|http:Response|error result = vacancy:cachedOrgStructure(requestId);
-        if result is json {
-            return result;
-        }
-        return forwardOrError(result, "Failed to fetch org structure from upstream service", requestId);
-    }
-
-    # One published job's detail, 404 if it doesn't exist. Public: no sign-in needed.
-    resource function get jobs/[string jobId](http:RequestContext ctx)
-            returns json|http:BadRequest|http:NotFound|http:BadGateway|http:GatewayTimeout {
-        if !types:isValidJobId(jobId) {
-            return <http:BadRequest>{body: {message: "Invalid job id"}};
-        }
-        string requestId = types:requestIdOf(ctx);
-        json|http:Response|error result = vacancy:cachedJob(jobId, requestId);
-        if result is json {
-            return result;
-        }
-        if result is error {
-            log:printError("Failed to fetch job from upstream service", result, requestId = requestId);
-            return <http:GatewayTimeout>{body: {message: "Upstream service unreachable"}};
-        }
-        // A vacancy that is not published is answered with 400, which is also "not found" here.
-        if result.statusCode == 404 || result.statusCode == 400 {
-            return <http:NotFound>{body: {message: "Job not found"}};
-        }
-        return forwardOrError(result, "Failed to fetch job from upstream service", requestId);
-    }
-
-    # Validates the application form and CV, then creates the candidate in the ATS.
-    # Public: no sign-in needed.
-    resource function post jobs/[string jobId]/apply(http:Request req, http:RequestContext ctx)
-            returns http:Created|http:BadRequest|http:LengthRequired|http:NotFound|http:Conflict|http:BadGateway
-                |http:GatewayTimeout {
-        if !types:isValidJobId(jobId) {
-            return <http:BadRequest>{body: {message: "Invalid job id"}};
-        }
-        string requestId = types:requestIdOf(ctx);
-        // The listener's size limit is the larger one the documents need, so this public route bounds its own body.
-        if !declaresLength(req) {
-            return <http:LengthRequired>{body: {message: "The request must declare the length of its body."}};
-        }
-        if exceeds(req, apply:MAX_REQUEST_BYTES) {
-            return <http:BadRequest>{body: {message: "The application is too large."}};
-        }
-        apply:ApplicationForm|string form = apply:parseApplicationForm(req);
-        if form is string {
-            return <http:BadRequest>{body: {message: form}};
-        }
-
-        vacancy:CandidateApplication candidate = {
-            firstName: form.firstName,
-            lastName: form.lastName,
-            personalEmail: form.email.toLowerAscii(),
-            contactNo: form.phone,
-            address: form.address,
-            resume: form.cv
-        };
-        string? university = form?.university;
-        if university is string {
-            candidate.university = university;
-        }
-        http:Response|error resp = vacancy:applyForJob(jobId, candidate, requestId);
-        if resp is error {
-            log:printError("Failed to reach the ATS for an application",
-                errorMessage = types:withoutPersonalData(resp.message()), requestId = requestId);
-            return <http:GatewayTimeout>{body: {message: "Upstream service unreachable"}};
-        }
-        if resp.statusCode == http:STATUS_UNPROCESSABLE_ENTITY {
-            string|error reason = resp.getTextPayload();
-            return <http:BadRequest>{body: {message: reason is string ? reason : "The application was not accepted."}};
-        }
-        if resp.statusCode < 200 || resp.statusCode >= 300 {
-            // Log the upstream status and a short piece of its reply, never the applicant's details.
-            string|error reply = resp.getTextPayload();
-            string redacted = reply is string ? types:withoutPersonalData(reply) : "";
-            string replySnippet = redacted.length() > MAX_LOGGED_REPLY_LENGTH
-                ? redacted.substring(0, MAX_LOGGED_REPLY_LENGTH) : redacted;
-            log:printError(string `The ATS did not accept an application for vacancy ${jobId}: status ${resp.statusCode}`,
-                reply = replySnippet, requestId = requestId);
-            return apply:applyFailure(resp.statusCode);
-        }
-        log:printInfo(string `Application submitted for vacancy ${jobId}`, requestId = requestId);
-        return <http:Created>{body: {message: "Application submitted"}};
-    }
 
     # The signed-in candidate's details, taken from their most recent application.
     resource function get candidates/me(http:RequestContext ctx)
@@ -234,29 +89,12 @@ service http:InterceptableService / on new http:Listener(port, requestLimits = {
         return applications;
     }
 
-    # The offer letter sent for one of the signed-in candidate's own applications, 404 when there is none.
-    resource function get applications/[string applicationId]/offer\-letter(http:RequestContext ctx)
-            returns json|http:Unauthorized|http:Forbidden|http:BadRequest|http:NotFound|http:BadGateway
-                |http:GatewayTimeout {
-        string requestId = types:requestIdOf(ctx);
-        if !types:isValidJobId(applicationId) {
-            return <http:NotFound>{body: {message: "Application not found"}};
-        }
-        jwt:CallerDetails|http:Unauthorized|http:Forbidden|http:BadGateway|http:GatewayTimeout caller =
-            callerOf(ctx, requestId);
-        if caller !is jwt:CallerDetails {
-            return caller;
-        }
-        return profileReply(vacancy:getOfferLetter(caller.email, applicationId, requestId),
-            "Failed to fetch the offer letter", requestId);
-    }
-
     # The interviews of one of the signed-in candidate's own applications, in the order they take place.
     resource function get applications/[string applicationId]/interviews(http:RequestContext ctx)
             returns json|http:Unauthorized|http:Forbidden|http:BadRequest|http:NotFound|http:BadGateway
                 |http:GatewayTimeout {
         string requestId = types:requestIdOf(ctx);
-        if !types:isValidJobId(applicationId) {
+        if !types:isValidNumericId(applicationId) {
             return <http:NotFound>{body: {message: "Application not found"}};
         }
         jwt:CallerDetails|http:Unauthorized|http:Forbidden|http:BadGateway|http:GatewayTimeout caller =
@@ -268,12 +106,75 @@ service http:InterceptableService / on new http:Listener(port, requestLimits = {
             "Failed to fetch the interviews", requestId);
     }
 
+    # The signed-in candidate accepts or declines the offer of one of their own applications. The ATS records the answer
+    # and tells the offers team and HR.
+    resource function post applications/[string applicationId]/offer/decision(http:RequestContext ctx,
+            vacancy:OfferDecision answer)
+            returns json|http:Unauthorized|http:Forbidden|http:BadRequest|http:NotFound|http:Conflict|http:Gone
+                |http:BadGateway|http:GatewayTimeout {
+        string requestId = types:requestIdOf(ctx);
+        if !types:isValidNumericId(applicationId) {
+            return <http:NotFound>{body: {message: "Application not found"}};
+        }
+        jwt:CallerDetails|http:Unauthorized|http:Forbidden|http:BadGateway|http:GatewayTimeout caller =
+            callerOf(ctx, requestId);
+        if caller !is jwt:CallerDetails {
+            return caller;
+        }
+        // The mail to the offers team lists the documents asked for, and lists none while the documents step is closed.
+        string[] requestedDocuments = [];
+        if documents:documentsEnabled {
+            requestedDocuments = from documents:DocumentSpec document in documents:REQUIRED_DOCUMENTS
+                where document.required
+                select document.label;
+        }
+        http:Response|error resp = vacancy:answerOffer(caller.email, applicationId, answer, requestedDocuments, requestId);
+        if resp is error {
+            return candidateFailure(resp, "Failed to record your answer", requestId);
+        }
+        // The ATS answers a recorded decision with 201, so any 2xx reply means it was recorded.
+        if resp.statusCode >= http:STATUS_OK && resp.statusCode < http:STATUS_MULTIPLE_CHOICES {
+            log:printInfo("Offer answered", outcome = answer.decision, applicationId = applicationId,
+                requestId = requestId);
+            return {status: answer.decision};
+        }
+        log:printWarn("The offer answer was not recorded", status = resp.statusCode, applicationId = applicationId,
+            requestId = requestId);
+        match resp.statusCode {
+            http:STATUS_BAD_REQUEST => {
+                // The answer is checked here before it is sent, and that reply is plain text saying what is wrong. A
+                // refusal from the ATS is JSON and has no message for the candidate.
+                string|error problem = resp.getTextPayload();
+                boolean builtHere = resp.getContentType().startsWith("text/plain");
+                return <http:BadRequest>{
+                    body: {
+                        message: problem is string && builtHere ? problem
+                            : "The answer was not accepted. Please check it and try again."
+                    }
+                };
+            }
+            http:STATUS_NOT_FOUND => {
+                return <http:NotFound>{body: {message: "There is no offer to answer for this application."}};
+            }
+            http:STATUS_CONFLICT => {
+                return <http:Conflict>{body: {message: "This offer was already answered."}};
+            }
+            http:STATUS_GONE => {
+                return <http:Gone>{body: {message: "This offer has expired. Please contact HR."}};
+            }
+        }
+        return <http:BadGateway>{body: {message: "Failed to record your answer"}};
+    }
+
     # Whether the signed-in candidate has submitted the documents for one of their own accepted offers, whether they
     # can still change them and until when, and, when they have submitted, what they saved.
     resource function get applications/[string applicationId]/documents(http:RequestContext ctx)
             returns json|http:Unauthorized|http:Forbidden|http:NotFound|http:BadGateway|http:GatewayTimeout {
+        if !documents:documentsEnabled {
+            return <http:NotFound>{body: {message: "Not available"}};
+        }
         string requestId = types:requestIdOf(ctx);
-        if !types:isValidJobId(applicationId) {
+        if !types:isValidNumericId(applicationId) {
             return <http:NotFound>{body: {message: "Application not found"}};
         }
         jwt:CallerDetails|http:Unauthorized|http:Forbidden|http:BadGateway|http:GatewayTimeout caller =
@@ -299,26 +200,34 @@ service http:InterceptableService / on new http:Listener(port, requestLimits = {
     }
 
     # The documents asked for after an offer is accepted, and the limits each file must meet.
-    resource function get documents/requirements() returns json => {
-        documents: documents:REQUIRED_DOCUMENTS.toJson(),
-        maxFiles: documents:MAX_FILES,
-        maxFileBytes: documents:MAX_FILE_BYTES,
-        maxTotalBytes: documents:MAX_TOTAL_BYTES,
-        tshirtSizes: documents:TSHIRT_SIZES,
-        titles: documents:TITLES,
-        genders: documents:GENDERS,
-        civilStatuses: documents:CIVIL_STATUSES,
-        dependantRelationships: documents:DEPENDANT_RELATIONSHIPS,
-        maxDependants: documents:MAX_DEPENDANTS,
-        maxEmergencyContacts: documents:MAX_EMERGENCY_CONTACTS
-    };
+    resource function get documents/requirements() returns json|http:NotFound {
+        if !documents:documentsEnabled {
+            return <http:NotFound>{body: {message: "Not available"}};
+        }
+        return {
+            documents: documents:REQUIRED_DOCUMENTS.toJson(),
+            maxFiles: documents:MAX_FILES,
+            maxFileBytes: documents:MAX_FILE_BYTES,
+            maxTotalBytes: documents:MAX_TOTAL_BYTES,
+            tshirtSizes: documents:TSHIRT_SIZES,
+            titles: documents:TITLES,
+            genders: documents:GENDERS,
+            civilStatuses: documents:CIVIL_STATUSES,
+            dependantRelationships: documents:DEPENDANT_RELATIONSHIPS,
+            maxDependants: documents:MAX_DEPENDANTS,
+            maxEmergencyContacts: documents:MAX_EMERGENCY_CONTACTS
+        };
+    }
 
     # Stores the signed-in candidate's onboarding documents for one of their own applications whose offer is accepted.
     resource function post applications/[string applicationId]/documents(http:Request req, http:RequestContext ctx)
             returns http:Created|http:BadRequest|http:Unauthorized|http:Forbidden|http:NotFound|http:Conflict
                 |http:BadGateway|http:GatewayTimeout {
+        if !documents:documentsEnabled {
+            return <http:NotFound>{body: {message: "Not available"}};
+        }
         string requestId = types:requestIdOf(ctx);
-        if !types:isValidJobId(applicationId) {
+        if !types:isValidNumericId(applicationId) {
             return <http:NotFound>{body: {message: "Application not found"}};
         }
         jwt:AsgardeoJwt|error user = jwt:getUser(ctx);
@@ -378,8 +287,11 @@ service http:InterceptableService / on new http:Listener(port, requestLimits = {
     resource function put applications/[string applicationId]/documents(http:Request req, http:RequestContext ctx)
             returns http:Ok|http:BadRequest|http:Unauthorized|http:Forbidden|http:NotFound|http:Conflict
                 |http:BadGateway|http:GatewayTimeout {
+        if !documents:documentsEnabled {
+            return <http:NotFound>{body: {message: "Not available"}};
+        }
         string requestId = types:requestIdOf(ctx);
-        if !types:isValidJobId(applicationId) {
+        if !types:isValidNumericId(applicationId) {
             return <http:NotFound>{body: {message: "Application not found"}};
         }
         jwt:AsgardeoJwt|error user = jwt:getUser(ctx);

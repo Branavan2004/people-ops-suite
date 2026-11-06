@@ -55,3 +55,12 @@ public isolated function getValidatedLimit(int? 'limit) returns int {
 public isolated function getValidatedOffset(int? offset) returns int {
     return offset !is () && offset > -1 ? offset : 0;
 }
+
+# Turn a leave row into a leave, setting `hasSickNote` from the numeric `has_sick_note` column.
+#
+# + row - Leave row from `getCommonLeaveQuery`
+# + return - The leave
+isolated function toLeave(LeaveRow row) returns Leave {
+    LeaveRow {sickNoteFlag, ...leaveFields} = row;
+    return {...leaveFields, hasSickNote: sickNoteFlag == 1};
+}

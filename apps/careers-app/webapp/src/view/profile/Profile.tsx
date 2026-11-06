@@ -25,8 +25,8 @@ import {
   Stack,
   TextField,
   Typography,
-} from "@mui/material";
-import { GraduationCap, Mail, MapPin, Pencil, Phone, User } from "lucide-react";
+} from "@wso2/oxygen-ui";
+import { GraduationCap, Mail, MapPin, Pencil, Phone, User } from "@wso2/oxygen-ui-icons-react";
 import { useState } from "react";
 
 import { type CandidateProfile, type EditableProfileFields, State } from "@/types/types";

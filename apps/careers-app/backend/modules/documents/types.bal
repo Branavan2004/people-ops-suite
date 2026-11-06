@@ -253,4 +253,16 @@ public final readonly & DocumentSpec[] REQUIRED_DOCUMENTS = [
 # The name of the form field that carries the candidate's declaration.
 public const DECLARATION_FIELD = "declaration";
 
-configurable readonly & StorageConfig storageConfig = ?;
+# Whether candidates can use the onboarding documents step. The first phase stops at accepting or declining an offer, so
+# it is off by default and the storage settings are then not needed.
+public configurable boolean documentsEnabled = false;
+
+# Where the documents are stored. Needed only when the documents step is enabled.
+configurable readonly & StorageConfig storageConfig = {baseUrl: "", container: "", sasToken: ""};
+
+// Refuses to start with the documents step enabled and nowhere to put the documents.
+function init() returns error? {
+    if documentsEnabled && (storageConfig.baseUrl == "" || storageConfig.container == "" || storageConfig.sasToken == "") {
+        return error("The documents step is enabled but its storage settings are missing");
+    }
+}

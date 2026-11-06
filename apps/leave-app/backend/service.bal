@@ -18,6 +18,8 @@ import leave_service.calendar_events;
 import leave_service.database;
 import leave_service.email;
 import leave_service.employee;
+import leave_service.policy;
+import leave_service.sick_note;
 
 import ballerina/http;
 import ballerina/log;
@@ -29,7 +31,9 @@ import ballerina/time;
     id: "people-ops/leave-application"
 }
 
-service http:InterceptableService / on new http:Listener(9090) {
+// The body limit is the sick leave request's; every other endpoint takes a small JSON body.
+service http:InterceptableService / on new http:Listener(9090,
+        requestLimits = {maxEntityBodySize: MAX_SICK_LEAVE_REQUEST_BYTES}) {
 
     # Request interceptor.
     # + return - authorization:JwtInterceptor
@@ -67,6 +71,9 @@ service http:InterceptableService / on new http:Listener(9090) {
             if isPeopleOpsTeamMember ||
                 authorization:hasAnyRole(authorization:authorizedRoles.sabbaticalReportRoles, userInfo.groups) {
                 privileges.push(authorization:SABBATICAL_REPORT_PRIVILEGE);
+            }
+            if authorization:hasAnyRole(authorization:authorizedRoles.sickNoteRoles, userInfo.groups) {
+                privileges.push(authorization:SICK_NOTE_PRIVILEGE);
             }
             employee:Employee[]|error subordinates = employee:getEmployees(
                     {
@@ -185,7 +192,9 @@ service http:InterceptableService / on new http:Listener(9090) {
             sabbaticalLeaveMaxApplicationDuration,
             sabbaticalLeaveMinJobBand,
             cachedEmails,
-            onBehalfAllowedLeaveTypes
+            onBehalfAllowedLeaveTypes,
+            sickNoteMaxBytes: sick_note:MAX_SICK_NOTE_BYTES,
+            sickNoteContentTypes: sick_note:SICK_NOTE_CONTENT_TYPES
         };
     }
 
@@ -339,6 +348,12 @@ service http:InterceptableService / on new http:Listener(9090) {
                     message: ERR_MSG_LEAVES_RETRIEVAL_FAILED
                 }
             };
+        }
+        // A lead's rejection reason is only for the applicant, their leads and People Ops, not report readers.
+        if isCrossEmployeeRead && !isPeopleOpsTeamMember {
+            foreach database:Leave leave in leaves {
+                leave.rejectionReason = ();
+            }
         }
 
         // Clip first element: if the leave starts before the given startDate,
@@ -519,7 +534,8 @@ service http:InterceptableService / on new http:Listener(9090) {
                     };
                 }
 
-                string? leadMail = employeeDetails.leadEmail;
+                // HR can send an empty lead, which counts as none.
+                string? leadMail = nonBlankEmail(employeeDetails.leadEmail);
                 if leadMail is () {
                     string errMsg = "A reporting lead is required to apply for sabbatical leave.";
                     log:printWarn(errMsg);
@@ -566,113 +582,47 @@ service http:InterceptableService / on new http:Listener(9090) {
                 };
             }
 
-            [time:Utc, time:Utc]|error validatedDateRange = validateDateRange(payload.startDate, payload.endDate);
-            if validatedDateRange is error {
-                log:printError(ERR_MSG_INVALID_DATE_FORMAT, validatedDateRange);
-                return <http:BadRequest>{
+            return submitLeave(payload, email, jwt, isValidationOnlyMode);
+
+        } on fail error internalErr {
+            string errMsg = "Error occurred while submitting a leave";
+            log:printError(errMsg, internalErr);
+            return <http:InternalServerError>{
+                body: {
+                    message: errMsg
+                }
+            };
+        }
+    }
+
+    # Submit sick leave in France with its sick note, in one JSON request.
+    #
+    # `leave` carries the leave, as for `POST /leaves`, and `sickNote` carries a PDF, JPG or PNG file of at most 5 MB
+    # as base64 text. The leave and the encrypted note are saved in one transaction. Date previews
+    # (`isValidationOnlyMode`) stay on `POST /leaves`.
+    #
+    # + ctx - HTTP request context
+    # + req - JSON request with the leave and the sick note as base64 text
+    # + return - Success response if the leave is submitted, otherwise an error response
+    resource function post leaves/sick\-leave(http:RequestContext ctx, http:Request req)
+        returns http:Ok|http:BadRequest|http:Unauthorized|http:PayloadTooLarge|http:InternalServerError {
+
+        do {
+            readonly & authorization:CustomJwtPayload userInfo = check ctx.getWithType(authorization:HEADER_USER_INFO);
+            string jwt = check ctx.getWithType(authorization:INVOKER_TOKEN);
+            if !authorization:checkPermissions(authorization:authorizedRoles.employeeRoles, userInfo.groups) {
+                return <http:Unauthorized>{
                     body: {
-                        message: ERR_MSG_INVALID_DATE_FORMAT
+                        message: "You are not authorized to access this resource."
                     }
                 };
             }
-            // Day[] weekdaysFromRange = getWeekdaysFromRange(validatedDateRange[0], validatedDateRange[1]);
-            LeaveInput input = {
-                email,
-                startDate: payload.startDate,
-                endDate: payload.endDate,
-                leaveType: payload.leaveType,
-                periodType: payload.periodType,
-                isMorningLeave: payload.isMorningLeave,
-                emailRecipients: payload.emailRecipients,
-                calendarEventId: payload.calendarEventId,
-                comment: payload.comment,
-                isPublicComment: payload.isPublicComment,
-                emailSubject: payload.emailSubject,
-                status: APPROVED
-            };
-            if isValidationOnlyMode {
-                LeaveDetails|error validatedLeave = insertLeaveToDatabase(input, isValidationOnlyMode, jwt);
-                if validatedLeave is error {
-                    fail error(validatedLeave.message(), validatedLeave);
-                }
-
-                return {
-                    workingDays: payload.periodType is database:HALF_DAY_LEAVE
-                        ? 0.5
-                        : <float>validatedLeave.effectiveDays.length(),
-                    hasOverlap: false,
-                    message: "Valid leave request"
-                };
+            // Checked from the headers, before any of the body is read.
+            http:PayloadTooLarge? sizeRefusal = checkSickLeaveRequestSize(req);
+            if sizeRefusal !is () {
+                return sizeRefusal;
             }
-
-            final readonly & email:EmailNotificationDetails emailContentForLeave = check email:generateContentForLeave(
-                        jwt, email, payload
-                );
-            final readonly & string calendarEventId = createUuidForCalendarEvent();
-            final readonly & string[]|error allRecipientsForUser = getAllEmailRecipientsForUser(
-                        email,
-                    payload.emailRecipients,
-                    jwt
-                );
-            if allRecipientsForUser is error {
-                fail error(allRecipientsForUser.message(), allRecipientsForUser);
-            }
-            final readonly & string? comment = payload.comment;
-
-            payload.emailSubject = emailContentForLeave.subject;
-            payload.calendarEventId = calendarEventId;
-            input.emailSubject = emailContentForLeave.subject;
-            input.calendarEventId = calendarEventId;
-            input.emailRecipients = allRecipientsForUser;
-
-            LeaveDetails|error leave = insertLeaveToDatabase(input, isValidationOnlyMode, jwt);
-            if leave is error {
-                fail error(leave.message(), leave);
-            }
-            final readonly & LeaveResponse leaveResponse = {
-                id: leave.id,
-                startDate: leave.startDate,
-                calendarEventId: leave.calendarEventId,
-                periodType: leave.periodType,
-                createdDate: leave.createdDate,
-                leaveType: leave.leaveType,
-                endDate: leave.endDate,
-                location: leave.location,
-                numberOfDays: leave.numberOfDays ?: 0.0,
-                status: <Status>leave.status,
-                email: leave.email,
-                isMorningLeave: leave.isMorningLeave
-            };
-
-            future<error?> notificationFuture = start email:sendLeaveNotification(
-                        emailContentForLeave,
-                    allRecipientsForUser
-                );
-            _ = start createLeaveEventInCalendar(email, leaveResponse, calendarEventId);
-            if comment is string && !checkIfEmptyString(comment) {
-                string[] commentRecipients = allRecipientsForUser;
-                if !payload.isPublicComment {
-                    commentRecipients = check getPrivateRecipientsForUser(
-                                email,
-                            payload.emailRecipients,
-                            jwt
-                        );
-                }
-
-                error? notificationResult = wait notificationFuture;
-                if notificationResult is () {
-                    // Does not send the additional comment notification if the main notification has failed
-                    final email:EmailNotificationDetails contentForAdditionalComment =
-                        email:generateContentForAdditionalComment(emailContentForLeave.subject, comment);
-                    _ = start email:sendAdditionalComment(contentForAdditionalComment.cloneReadOnly(),
-                            commentRecipients.cloneReadOnly());
-                }
-            }
-            return <http:Ok>{
-                body: {
-                    message: "Leave submitted successfully"
-                }
-            };
+            return submitSickLeave(req, userInfo.email, jwt);
 
         } on fail error internalErr {
             string errMsg = "Error occurred while submitting a leave";
@@ -740,6 +690,29 @@ service http:InterceptableService / on new http:Listener(9090) {
                 return <http:BadRequest>{
                     body: {
                         message: "Half day leave cannot be recorded on behalf of an employee."
+                    }
+                };
+            }
+
+            // France-only leave types, checked against the employee the leave is recorded for.
+            string|error employeeLocation = employee:getEmployeeLocation(employeeEmail, jwt);
+            if employeeLocation is error {
+                fail error(employeeLocation.message(), employeeLocation);
+            }
+            error? leaveTypeError = policy:checkLeaveTypeAllowed(payload.leaveType, employeeLocation);
+            if leaveTypeError is error {
+                return <http:BadRequest>{
+                    body: {
+                        message: leaveTypeError.message()
+                    }
+                };
+            }
+            // France sick leave is saved only with its sick note, which this path cannot take.
+            if policy:requiresSickNote(payload.leaveType, employeeLocation) {
+                return <http:BadRequest>{
+                    body: {
+                        message: "Sick leave in France needs a sick note, so it can't be recorded on behalf of an " +
+                        "employee."
                     }
                 };
             }
@@ -974,12 +947,33 @@ service http:InterceptableService / on new http:Listener(9090) {
                     };
                 }
             }
-            if leaveResponse.status == CANCELLED {
-                return <http:BadRequest>{
-                    body: {
-                        message: "Leave is already cancelled!"
-                    }
-                };
+            http:BadRequest? cancellationRefusal = getCancellationRefusal(leaveResponse.status);
+            if cancellationRefusal is http:BadRequest {
+                return cancellationRefusal;
+            }
+            // A pending Other Authorized Leave has no team email or calendar event yet; only the lead is told.
+            if leaveResponse.leaveType == database:OTHER_AUTHORIZED_LEAVE && leaveResponse.status == PENDING {
+                error? withdrawalResult = withdrawOtherAuthorizedLeave(leave);
+                if withdrawalResult is () {
+                    return <http:Ok>{
+                        body: {
+                            message: "Leave cancelled successfully"
+                        }
+                    };
+                }
+                if withdrawalResult !is database:LeaveNotPendingError {
+                    fail error(withdrawalResult.message(), withdrawalResult);
+                }
+                // The lead decided the request after it was read above, so cancel it as it now stands.
+                database:Leave|error? decidedLeave = database:getLeave(id);
+                if decidedLeave is error? {
+                    fail error(ERR_MSG_LEAVE_RETRIEVAL_FAILED, decidedLeave);
+                }
+                leaveResponse = check toLeaveEntity(decidedLeave, jwt);
+                cancellationRefusal = getCancellationRefusal(leaveResponse.status);
+                if cancellationRefusal is http:BadRequest {
+                    return cancellationRefusal;
+                }
             }
 
             any|error result = database:cancelLeave(id);
@@ -1009,22 +1003,23 @@ service http:InterceptableService / on new http:Listener(9090) {
                     jwt
             );
             if cancelledLeaveDetails.leaveType == database:SABBATICAL_LEAVE {
-                string? approverEmail = cancelledLeaveDetails.approverEmail;
-                // process cancellation for the sabbatical leaves
-                if approverEmail is () {
-                    string errMsg = string `Approver email is not available for leave with ID: ${id}.`;
-                    log:printError(errMsg);
-                    return <http:InternalServerError>{
-                        body: {
-                            message: errMsg
-                        }
-                    };
+                // The applicant's current lead is told, as the lead may have changed since the request was made or
+                // decided. The saved approver is used when HR has no lead, as for an Other Authorized withdrawal.
+                employee:Employee & readonly|error applicant = employee:getEmployee(cancelledLeaveDetails.email);
+                if applicant is error {
+                    log:printWarn("Could not look up the lead of a sabbatical applicant", applicant, leaveId = id);
                 }
+                string? hrLeadEmail = applicant is error ? () : nonBlankEmail(applicant.leadEmail);
+                string? approverEmail = hrLeadEmail ?: nonBlankEmail(cancelledLeaveDetails.approverEmail);
+                if approverEmail is () {
+                    log:printWarn("Sabbatical cancelled with no known lead, so the lead is not notified", leaveId = id);
+                }
+                // The leave is already cancelled, so a notification problem is logged, not reported as a failure.
                 error? cancellationResult = processSabbaticalLeaveRequest({
                                                                               action: CANCEL,
                                                                               applicantEmail:
                                                                             cancelledLeaveDetails.email,
-                                                                              approverEmail,
+                                                                              approverEmail: approverEmail ?: "",
                                                                               leaveStartDate:
                                                                             cancelledLeaveDetails.
                                                                             startDate.substring(0, 10),
@@ -1034,11 +1029,6 @@ service http:InterceptableService / on new http:Listener(9090) {
                                                                           });
                 if cancellationResult is error {
                     log:printError("Failed to process sabbatical leave cancellation notification", cancellationResult);
-                    return <http:InternalServerError>{
-                        body: {
-                            message: "Error occurred while cancelling sabbatical leave!"
-                        }
-                    };
                 }
             } else {
                 // Send email in the regular format for non-sabbatical leaves
@@ -1069,6 +1059,78 @@ service http:InterceptableService / on new http:Listener(9090) {
                 }
             };
         }
+    }
+
+    # Download the sick note of a leave. Only the applicant and members of `sickNoteRoles` may download it, and every
+    # download is recorded.
+    #
+    # + id - Leave ID
+    # + ctx - HTTP request context
+    # + return - The sick note file, otherwise an error response
+    resource function get leaves/[int id]/sick\-note(http:RequestContext ctx)
+        returns http:Response|http:NotFound|http:Forbidden|http:InternalServerError {
+
+        readonly & authorization:CustomJwtPayload|error userInfo = ctx.getWithType(authorization:HEADER_USER_INFO);
+        if userInfo is error {
+            string errMsg = "Error occurred while decoding user info from token";
+            log:printError(errMsg, userInfo);
+            return <http:InternalServerError>{
+                body: {
+                    message: errMsg
+                }
+            };
+        }
+        return downloadSickNote(id, userInfo.email, userInfo.groups);
+    }
+
+    # List sick leaves in France that have a sick note and overlap the given dates, newest first. Only for members of
+    # `sickNoteRoles`.
+    #
+    # + ctx - HTTP request context
+    # + startDate - Start of the date range
+    # + endDate - End of the date range, inclusive
+    # + return - Sick notes, otherwise an error response
+    resource function get sick\-notes(http:RequestContext ctx, string startDate, string endDate)
+        returns database:SickNoteSummary[]|http:BadRequest|http:Forbidden|http:InternalServerError {
+
+        readonly & authorization:CustomJwtPayload|error userInfo = ctx.getWithType(authorization:HEADER_USER_INFO);
+        if userInfo is error {
+            string errMsg = "Error occurred while decoding user info from token";
+            log:printError(errMsg, userInfo);
+            return <http:InternalServerError>{
+                body: {
+                    message: errMsg
+                }
+            };
+        }
+        if !authorization:hasAnyRole(authorization:authorizedRoles.sickNoteRoles, userInfo.groups) {
+            return <http:Forbidden>{
+                body: {
+                    message: "You are not authorized to view sick notes."
+                }
+            };
+        }
+        [time:Utc, time:Utc]|error dateRange = validateDateRange(startDate, endDate);
+        if dateRange is error {
+            return <http:BadRequest>{
+                body: {
+                    message: dateRange.message()
+                }
+            };
+        }
+        // validateDateRange accepts yyyy-mm-dd and full ISO 8601 timestamps; the query compares whole days.
+        database:SickNoteSummary[]|error sickNotes = database:getSickNotes(startDate.substring(0, 10),
+                endDate.substring(0, 10));
+        if sickNotes is error {
+            string errMsg = "Error occurred while fetching sick notes";
+            log:printError(errMsg, sickNotes);
+            return <http:InternalServerError>{
+                body: {
+                    message: errMsg
+                }
+            };
+        }
+        return sickNotes;
     }
 
     # Fetch all the employees.
@@ -1304,11 +1366,13 @@ service http:InterceptableService / on new http:Listener(9090) {
         }
     }
 
-    # Approve / Reject the sabbatical leave application request.
+    # Approve / Reject a leave request that needs the lead's approval (sabbatical or Other Authorized Leave).
     #
     # + ctx - Request context
+    # + payload - Optional decision payload. A reason is required to reject Other Authorized Leave
     # + return - Success response if the application is approved/rejected successfully, otherwise an error response
-    resource function post leaves/[int id]/[Action action](http:RequestContext ctx)
+    resource function post leaves/[int id]/[Action action](http:RequestContext ctx,
+            @http:Payload DecisionPayload? payload)
         returns http:Ok|http:InternalServerError|http:Forbidden|http:BadRequest {
         authorization:CustomJwtPayload|error {email, groups} = ctx.getWithType(authorization:HEADER_USER_INFO);
         if !authorization:checkPermissions(authorization:authorizedRoles.employeeRoles, groups) {
@@ -1322,7 +1386,7 @@ service http:InterceptableService / on new http:Listener(9090) {
         // Get the lead info from the database and check if the approver is the relevant lead then proceed
         database:Leave|error? leave = database:getLeave(id);
         if leave is error || leave is () {
-            string errMsg = "Error occurred while fetching sabbatical leave records.";
+            string errMsg = "Error occurred while fetching the leave request.";
             log:printError(errMsg, leave);
             return <http:InternalServerError>{
                 body: {
@@ -1345,7 +1409,7 @@ service http:InterceptableService / on new http:Listener(9090) {
 
         string? applicantLeadEmail = applicantInfo.leadEmail;
         if applicantLeadEmail is () {
-            string errMsg = "Sabbatical leave applicant's reporting lead is not available.";
+            string errMsg = "The leave applicant's reporting lead is not available.";
             log:printError(errMsg);
             return <http:BadRequest>{
                 body: {
@@ -1354,11 +1418,31 @@ service http:InterceptableService / on new http:Listener(9090) {
             };
         }
         if applicantLeadEmail.toLowerAscii() != email.toLowerAscii() {
-            string errMsg = "The current user is not authorized to approve/reject this sabbatical leave application";
+            string errMsg = "The current user is not authorized to approve/reject this leave request";
             log:printError(errMsg);
             return <http:Forbidden>{
                 body: {
                     message: errMsg
+                }
+            };
+        }
+        if leave.leaveType == database:OTHER_AUTHORIZED_LEAVE {
+            string|error jwt = ctx.getWithType(authorization:INVOKER_TOKEN);
+            if jwt is error {
+                string errMsg = "Error occurred while reading the invoker token.";
+                log:printError(errMsg, jwt);
+                return <http:InternalServerError>{
+                    body: {
+                        message: errMsg
+                    }
+                };
+            }
+            return decideOtherAuthorizedLeave(leave, action, email, payload, jwt);
+        }
+        if leave.leaveType != database:SABBATICAL_LEAVE {
+            return <http:BadRequest>{
+                body: {
+                    message: "This leave type does not need approval."
                 }
             };
         }
@@ -1389,6 +1473,13 @@ service http:InterceptableService / on new http:Listener(9090) {
                                                                   approverEmail: email,
                                                                   leaveId: id
                                                               });
+        if approvalResult is database:LeaveNotPendingError {
+            return <http:BadRequest>{
+                body: {
+                    message: approvalResult.message()
+                }
+            };
+        }
         if approvalResult is error {
             log:printError("Failed to process sabbatical leave approval notification", approvalResult);
             return <http:InternalServerError>{

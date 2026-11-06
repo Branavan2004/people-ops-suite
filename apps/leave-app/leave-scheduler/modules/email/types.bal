@@ -67,3 +67,39 @@ public type SabbaticalReminderDetails record {|
     # Number of calendar days the leave spans
     int durationDays;
 |};
+
+# Details of one approval reminder email.
+public type ApprovalReminderDetails record {|
+    # Display name of the employee who applied
+    string employeeName;
+    # Email of the lead the reminder is sent to
+    string leadEmail;
+    # First name of the lead, for the greeting
+    string leadName;
+    # Leave start date (yyyy-mm-dd)
+    string startDate;
+    # Leave end date (yyyy-mm-dd)
+    string endDate;
+    # Number of leave days
+    float numberOfDays;
+    # Days since the leave was submitted
+    int daysWaiting;
+    # Whether the leave has already started
+    boolean hasStarted;
+    # Link to the Leave App approval page
+    string approvalUrl;
+|};
+
+# Details of one alert that an employee's pending leave has no lead to approve it.
+public type NoLeadAlertDetails record {|
+    # Display name of the employee who applied
+    string employeeName;
+    # Email of the employee who applied
+    string employeeEmail;
+    # Leave start date (yyyy-mm-dd)
+    string startDate;
+    # Leave end date (yyyy-mm-dd)
+    string endDate;
+    # Days since the leave was submitted
+    int daysWaiting;
+|};

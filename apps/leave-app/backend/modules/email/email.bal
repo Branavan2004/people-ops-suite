@@ -311,3 +311,121 @@ public isolated function generateContentForAdditionalComment(string subject, str
         body
     };
 }
+
+# Generate the email content asking the reporting lead to approve an Other Authorized Leave request.
+#
+# + employeeName - Name of the applicant
+# + startDate - Leave start date (ISO 8601)
+# + endDate - Leave end date (ISO 8601)
+# + numberOfDays - Number of working days requested
+# + comment - Comment from the applicant, if any
+# + approvalUrl - Link to the page where the lead approves or rejects the request
+# + return - EmailNotificationDetails record
+public isolated function approvalRequestContent(string employeeName, string startDate, string endDate,
+        float numberOfDays, string? comment, string approvalUrl) returns EmailNotificationDetails {
+
+    string period = getEmailLeavePeriod(startDate, endDate);
+    string workingDays = getWorkingDaysText(numberOfDays);
+    string commentLine = comment is string && comment.trim().length() > 0
+        ? string `<br/><br/>Comment: ${escapeHtml(comment)}`
+        : "";
+    return {
+        subject: getPrefixedEmailSubject(
+                string `Approval requested: ${employeeName}'s Other Authorized Leave ${period}`),
+        body: string `
+            <p>
+                Hi,
+                <br/><br/>
+                ${escapeHtml(employeeName)} has requested Other Authorized Leave ${period} (${workingDays}).
+                The request is waiting for the reporting lead's approval.${commentLine}
+                <br/><br/>
+                The reporting lead can approve or reject the request in the Leave App:
+                <a href="${approvalUrl}">${approvalUrl}</a>
+            </p>
+        `
+    };
+}
+
+# Generate the email content telling the applicant that their Other Authorized Leave request was rejected.
+#
+# + employeeName - Name of the applicant
+# + startDate - Leave start date (ISO 8601)
+# + endDate - Leave end date (ISO 8601)
+# + reason - Reason given by the reporting lead
+# + return - EmailNotificationDetails record
+public isolated function rejectionContent(string employeeName, string startDate, string endDate, string reason)
+    returns EmailNotificationDetails {
+
+    string period = getEmailLeavePeriod(startDate, endDate);
+    return {
+        subject: getPrefixedEmailSubject(string `Rejected: ${employeeName}'s Other Authorized Leave ${period}`),
+        body: string `
+            <p>
+                Hi,
+                <br/><br/>
+                The Other Authorized Leave request of ${escapeHtml(employeeName)} ${period} has been rejected
+                by the reporting lead.
+                <br/><br/>
+                Reason: ${escapeHtml(reason)}
+            </p>
+        `
+    };
+}
+
+# Generate the email content telling the applicant and the reporting lead that a pending Other Authorized Leave
+# request was withdrawn. The wording does not say who cancelled it, as People Operations may cancel it too.
+#
+# + employeeName - Name of the applicant
+# + startDate - Leave start date (ISO 8601)
+# + endDate - Leave end date (ISO 8601)
+# + return - EmailNotificationDetails record
+public isolated function withdrawalContent(string employeeName, string startDate, string endDate)
+    returns EmailNotificationDetails {
+
+    string period = getEmailLeavePeriod(startDate, endDate);
+    return {
+        subject: getPrefixedEmailSubject(string `Withdrawn: ${employeeName}'s Other Authorized Leave ${period}`),
+        body: string `
+            <p>
+                Hi,
+                <br/><br/>
+                The Other Authorized Leave request of ${escapeHtml(employeeName)} ${period} has been withdrawn.
+                No action is needed.
+            </p>
+        `
+    };
+}
+
+# Describe a leave period for an email, e.g. "on Mon, 2 Nov 2026" or "from Mon, 2 Nov 2026 to Fri, 6 Nov 2026".
+#
+# + startDate - Leave start date (ISO 8601)
+# + endDate - Leave end date (ISO 8601)
+# + return - Leave period text
+isolated function getEmailLeavePeriod(string startDate, string endDate) returns string {
+    string startDateString = getEmailDateStringFromTimestamp(startDate);
+    string endDateString = getEmailDateStringFromTimestamp(endDate);
+    return startDateString == endDateString
+        ? string `on ${startDateString}`
+        : string `from ${startDateString} to ${endDateString}`;
+}
+
+# Describe a number of working days for an email, e.g. "0.5 working day" or "3 working days".
+#
+# + numberOfDays - Number of working days
+# + return - Working days text
+isolated function getWorkingDaysText(float numberOfDays) returns string {
+    string count = numberOfDays == numberOfDays.floor() ? (<int>numberOfDays).toString() : numberOfDays.toString();
+    return string `${count} working day${numberOfDays > 1.0 ? "s" : ""}`;
+}
+
+# Escape text typed by a user so it shows as plain text in an HTML email.
+#
+# + text - Text to escape
+# + return - Text with &, <, >, " and ' replaced by HTML entities
+isolated function escapeHtml(string text) returns string {
+    string escaped = re `&`.replaceAll(text, "&amp;");
+    escaped = re `<`.replaceAll(escaped, "&lt;");
+    escaped = re `>`.replaceAll(escaped, "&gt;");
+    escaped = re `"`.replaceAll(escaped, "&quot;");
+    return re `'`.replaceAll(escaped, "&#39;");
+}

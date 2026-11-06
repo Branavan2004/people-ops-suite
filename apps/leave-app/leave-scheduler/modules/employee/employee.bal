@@ -17,7 +17,8 @@
 # Get an employee's name and current lead from the HR entity service.
 #
 # + email - Work email of the employee
-# + return - The employee, or an error if the lookup failed or no employee has that email
+# + return - The employee, `EmployeeNotFoundError` if HR has no employee with that email, or an error if the lookup
+# failed
 public isolated function getEmployee(string email) returns Employee|error {
     string document = string `
         query getEmployee($email: String!) {
@@ -32,7 +33,7 @@ public isolated function getEmployee(string email) returns Employee|error {
     SingleEmployeeResponse response = check hrClient->execute(document, {email});
     Employee? employee = response.data.employee;
     if employee is () {
-        return error(string `Employee not found: ${email}`);
+        return error EmployeeNotFoundError(string `Employee not found: ${email}`);
     }
     return employee;
 }

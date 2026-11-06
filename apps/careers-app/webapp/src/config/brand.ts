@@ -14,13 +14,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import type { Theme } from "@mui/material";
+import { useColorScheme } from "@wso2/oxygen-ui";
 
 export const BRAND_ORANGE = "#ff6700";
 
-// Orange for text; the darker shade on the light theme to meet contrast.
-export const orangeTextOf = (theme: Theme) =>
-  theme.palette.mode === "dark" ? theme.palette.primary.main : theme.palette.primary.dark;
+// Whether the page is in dark mode, from the library's colour scheme (the system setting when none is chosen).
+export const useIsDark = (): boolean => {
+  const { mode, systemMode } = useColorScheme();
+  return (mode === "system" ? systemMode : mode) === "dark";
+};
 
 export const BRAND_TINT = {
   faint: "#ff670010",
@@ -31,38 +33,6 @@ export const BRAND_TINT = {
 // Side margin of a page by breakpoint (116px on wide screens) and its inner padding.
 export const PAGE_MARGIN_X = { xs: 0, md: "48px", lg: "116px" };
 export const PAGE_PADDING_X = "15px";
-// The side margin as a negative value.
-export const PAGE_PULL_LEFT = { xs: 0, md: "-48px", lg: "-116px" };
 
 // Text on the brand orange: dark in both modes.
 export const ON_ORANGE = "#0B1220";
-
-// Job page hero colours for each theme mode, also used by its skeleton.
-const HERO_COLORS = {
-  dark: {
-    background: "#0f172a",
-    gridLine: "rgba(255,255,255,0.05)",
-    outline: "rgba(255,255,255,0.2)",
-    orangeGlow: "rgba(255,115,0,0.38)",
-    blueGlow: "rgba(60,90,160,0.35)",
-    backButtonBorder: "rgba(255,255,255,0.8)",
-    backButtonFill: "rgba(255,255,255,0.12)",
-    circleBorder: "rgba(255,255,255,0.25)",
-    circleIcon: "rgba(255,255,255,0.7)",
-    skeleton: "rgba(255,255,255,0.08)",
-  },
-  light: {
-    background: "#F6F7FA",
-    gridLine: "rgba(23,34,58,0.06)",
-    outline: "rgba(23,34,58,0.2)",
-    orangeGlow: "rgba(255,115,0,0.2)",
-    blueGlow: "rgba(60,90,160,0.16)",
-    backButtonBorder: "rgba(23,34,58,0.6)",
-    backButtonFill: "rgba(255,255,255,0.8)",
-    circleBorder: "rgba(23,34,58,0.25)",
-    circleIcon: "#6B7280",
-    skeleton: "rgba(23,34,58,0.08)",
-  },
-} as const;
-
-export const heroColorsOf = (mode: "light" | "dark") => HERO_COLORS[mode];

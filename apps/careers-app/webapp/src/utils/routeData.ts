@@ -15,7 +15,7 @@
 // under the License.
 
 // A piece of store data that a route reads.
-export type RouteNeed = "jobs" | "orgStructure" | "jobDetails" | "applications" | "profile";
+type RouteNeed = "applications" | "profile";
 
 // Set as `handle` on a route in app/AppHandler.tsx, so what a route needs is declared on the route itself.
 export interface RouteHandle {
@@ -28,9 +28,6 @@ export type RouteData = Record<RouteNeed, boolean>;
 // The data needed by the matched routes, read from their handles. A route without a handle needs nothing.
 export function dataNeededBy(matches: { handle?: unknown }[]): RouteData {
   const needed: RouteData = {
-    jobs: false,
-    orgStructure: false,
-    jobDetails: false,
     applications: false,
     profile: false,
   };

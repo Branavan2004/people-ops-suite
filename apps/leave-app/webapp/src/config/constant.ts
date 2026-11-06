@@ -19,6 +19,7 @@ export const SnackMessage = {
     addCollections: "Successfully added the Collection",
     cancelLeaveMessage: "Leave cancelled successfully",
     submitLeaveMessage: "Leave request submitted successfully",
+    submitOtherAuthorizedLeaveMessage: "Your request has been sent to your lead for approval.",
     approveLeaveMessage: "Leave request approved successfully",
     rejectLeaveMessage: "Leave request rejected successfully",
     fetchLeadReportMessage: "Report fetched successfully",

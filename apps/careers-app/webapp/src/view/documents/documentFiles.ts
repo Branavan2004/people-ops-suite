@@ -71,9 +71,9 @@ export const problemWith = (file: File, requirements: DocumentRequirements, docu
 };
 
 // How far a section has got: nothing chosen yet, a file that is ready, or a file that was refused.
-export const STATUS_COLORS = { Complete: "success", Pending: "default", "Action needed": "error" } as const;
+export type DocumentStatus = "Complete" | "Pending" | "Action needed";
 
-export const statusOf = (hasFile: boolean, problem: string | undefined): keyof typeof STATUS_COLORS =>
+export const statusOf = (hasFile: boolean, problem: string | undefined): DocumentStatus =>
   problem ? "Action needed" : hasFile ? "Complete" : "Pending";
 
 // Whether a request failed because the sign-in has ended, as opposed to being refused.

@@ -21,6 +21,8 @@ interface AdditionalCommentProps {
   onCommentChange: (comment: string) => void;
   isPublicComment: boolean;
   onPublicCommentChange: (isPublic: boolean) => void;
+  /** The leave type needs a reason for the lead: the comment is required and can't be made public. */
+  reasonRequired?: boolean;
 }
 
 export default function AdditionalComment({
@@ -28,6 +30,7 @@ export default function AdditionalComment({
   onCommentChange,
   isPublicComment,
   onPublicCommentChange,
+  reasonRequired = false,
 }: AdditionalCommentProps) {
   const theme = useTheme();
 
@@ -36,11 +39,16 @@ export default function AdditionalComment({
       <Stack direction="row" alignItems="center" gap={1}>
         <ChatBubbleOutlineRoundedIcon sx={{ fontSize: 20, color: theme.palette.primary.main }} />
         <Typography variant="h6" sx={{ color: theme.palette.customText.primary.p1.active }}>
-          Additional Comments
+          {reasonRequired ? "Reason" : "Additional Comments"}
         </Typography>
       </Stack>
       <TextField
-        placeholder="Add a comment (optional)..."
+        placeholder={
+          reasonRequired
+            ? "Tell your lead why you need this leave (required)..."
+            : "Add a comment (optional)..."
+        }
+        required={reasonRequired}
         multiline
         minRows={3}
         fullWidth
@@ -49,20 +57,22 @@ export default function AdditionalComment({
         value={comment}
         onChange={(e) => onCommentChange(e.target.value)}
       />
-      <FormControlLabel
-        control={
-          <Switch
-            checked={isPublicComment}
-            onChange={(e) => onPublicCommentChange(e.target.checked)}
-            size="small"
-          />
-        }
-        label={
-          <Typography variant="body2" sx={{ color: theme.palette.customText.primary.p3.active }}>
-            Public comment
-          </Typography>
-        }
-      />
+      {!reasonRequired && (
+        <FormControlLabel
+          control={
+            <Switch
+              checked={isPublicComment}
+              onChange={(e) => onPublicCommentChange(e.target.checked)}
+              size="small"
+            />
+          }
+          label={
+            <Typography variant="body2" sx={{ color: theme.palette.customText.primary.p3.active }}>
+              Public comment
+            </Typography>
+          }
+        />
+      )}
     </Stack>
   );
 }

@@ -16,6 +16,7 @@
 import leave_service.calendar_events;
 import leave_service.database;
 import leave_service.employee;
+import leave_service.policy;
 
 import ballerina/log;
 import ballerina/time;
@@ -64,13 +65,17 @@ public isolated function calculateLeaveDetails(LeaveInput input, string token)
     }
 
     database:Leave[]|error overlappingDbLeaves = database:getLeaves(
-                filter = {emails: [email], startDate, endDate, statuses: [APPROVED]}
+                filter = {emails: [email], startDate, endDate, statuses: [APPROVED, PENDING]}
         );
     if overlappingDbLeaves is error {
         return error(overlappingDbLeaves.message(), overlappingDbLeaves);
     }
+    // Pending leaves block too, except those the policy exempts (e.g. sabbatical).
+    database:Leave[] blockingDbLeaves = from database:Leave leave in overlappingDbLeaves
+        where policy:isBlockingLeave(leave.leaveType ?: "", (leave.status ?: "").toString())
+        select leave;
 
-    LeaveDetails[]|error overlappingLeaves = getLeaveEntitiesFromDbRecords(overlappingDbLeaves, token);
+    LeaveDetails[]|error overlappingLeaves = getLeaveEntitiesFromDbRecords(blockingDbLeaves, token);
     if overlappingLeaves is error {
         return overlappingLeaves;
     }

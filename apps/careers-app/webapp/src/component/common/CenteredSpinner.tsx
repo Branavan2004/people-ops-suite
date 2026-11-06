@@ -14,16 +14,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, CircularProgress } from "@mui/material";
+import { Box, LinearProgress, Typography } from "@wso2/oxygen-ui";
 
 interface CenteredSpinnerProps {
-  size?: number;
   py?: number;
 }
 
-const CenteredSpinner = ({ size = 32, py = 8 }: CenteredSpinnerProps) => (
-  <Box sx={{ display: "flex", justifyContent: "center", py }}>
-    <CircularProgress size={size} sx={{ color: "primary.main" }} />
+// The progress bar shown while a page's content is being fetched.
+const CenteredSpinner = ({ py = 8 }: CenteredSpinnerProps) => (
+  <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, py }}>
+    <LinearProgress color="primary" sx={{ width: { xs: "70%", sm: 530 }, borderRadius: 1 }} />
+    <Typography variant="body2" color="text.secondary">
+      Loading...
+    </Typography>
   </Box>
 );
 

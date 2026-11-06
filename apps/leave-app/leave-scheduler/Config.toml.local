@@ -1,5 +1,12 @@
 [leave_scheduler]
 sabbaticalReminderLeadTimeInDays = 28
+# The two day settings below are required and must be set to at least 1; 0 makes the approval reminder job
+# fail on purpose until they are set.
+approvalReminderFirstDelayInDays = 0
+approvalReminderIntervalInDays = 0
+approvalPageUrl = ""
+# Required and must be set to at least 1; 0 makes the sick note retention job fail on purpose until it is set.
+sickNoteRetentionInDays = 0
 
 [leave_scheduler.database.dbConfig]
 host = ""

@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Dialog, DialogActions, DialogContent, Typography } from "@mui/material";
+import { Box, Dialog, DialogActions, DialogContent, Typography } from "@wso2/oxygen-ui";
 
 import { BRAND_ORANGE, BRAND_TINT } from "@config/brand";
 

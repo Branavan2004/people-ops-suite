@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box } from "@mui/material";
+import { Box } from "@wso2/oxygen-ui";
 
 import { PAGE_MARGIN_X, PAGE_PADDING_X } from "@config/brand";
 

@@ -31,6 +31,7 @@ import {
   OnBehalfLeavePreview,
   OnBehalfLeaveRequest,
   PeriodType,
+  SickNoteSummary,
 } from "@root/src/types/types";
 import { APIService } from "@root/src/utils/apiService";
 
@@ -80,6 +81,33 @@ export const submitLeaveRequest = async (
   const response = await apiInstance.post<LeaveSubmissionResponse>(
     `${AppConfig.serviceUrls.leaves}?isValidationOnlyMode=${false}`,
     request,
+  );
+
+  return response.data;
+};
+
+/**
+ * Submit a sick leave request with its sick note.
+ *
+ * Sent as multipart/form-data: the leave body as a JSON `leave` part and the
+ * file as the `sickNote` part. The Content-Type boundary is left to the browser.
+ * @param request - Leave submission request payload
+ * @param sickNote - Sick note file
+ * @returns Promise with submission response
+ */
+export const submitSickLeaveRequest = async (
+  request: LeaveSubmissionRequest,
+  sickNote: File,
+): Promise<LeaveSubmissionResponse> => {
+  const apiInstance = APIService.getInstance();
+
+  const formData = new FormData();
+  formData.append("leave", new Blob([JSON.stringify(request)], { type: "application/json" }));
+  formData.append("sickNote", sickNote);
+
+  const response = await apiInstance.post<LeaveSubmissionResponse>(
+    AppConfig.serviceUrls.sickLeave,
+    formData,
   );
 
   return response.data;
@@ -228,15 +256,57 @@ export const getLeadReport = async (request: LeadReportRequest): Promise<LeadRep
 };
 
 /**
- * Approve or reject sabbatical leave requests.
- * @param request - request payload
+ * Approve or reject a leave request.
+ * @param id - Leave ID
+ * @param action - Approve or reject
+ * @param reason - Optional reason; sent only when given (required to reject Other Authorized Leave)
  * @returns Promise with approval response
  */
-export const approveLeave = async (id: string, action: Action): Promise<ApprovalResponse> => {
+export const approveLeave = async (
+  id: string,
+  action: Action,
+  reason?: string,
+): Promise<ApprovalResponse> => {
   const apiInstance = APIService.getInstance();
 
   const response = await apiInstance.post<ApprovalResponse>(
     `${AppConfig.serviceUrls.leaves}/${id}/${action}`,
+    reason ? { reason } : undefined,
+  );
+
+  return response.data;
+};
+
+/**
+ * Download the sick note file of a leave.
+ * @param leaveId - Leave ID
+ * @returns Promise with the file as a Blob
+ */
+export const downloadSickNote = async (leaveId: number): Promise<Blob> => {
+  const apiInstance = APIService.getInstance();
+
+  const response = await apiInstance.get<Blob>(
+    `${AppConfig.serviceUrls.leaves}/${leaveId}/sick-note`,
+    { responseType: "blob" },
+  );
+
+  return response.data;
+};
+
+/**
+ * Get sick note summaries for leaves within a date range.
+ * @param startDate - Range start (YYYY-MM-DD)
+ * @param endDate - Range end (YYYY-MM-DD)
+ * @returns Promise with array of sick note summaries
+ */
+export const getSickNotes = async (
+  startDate: string,
+  endDate: string,
+): Promise<SickNoteSummary[]> => {
+  const apiInstance = APIService.getInstance();
+
+  const response = await apiInstance.get<SickNoteSummary[]>(
+    `${AppConfig.serviceUrls.sickNotes}?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
   );
 
   return response.data;

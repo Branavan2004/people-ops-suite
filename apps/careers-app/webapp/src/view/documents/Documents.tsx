@@ -14,8 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Button, Card, CircularProgress, LinearProgress, Stack, Typography } from "@mui/material";
-import { ArrowLeft, Check } from "lucide-react";
+import { Box, Button, Card, CircularProgress, LinearProgress, Stack, Typography } from "@wso2/oxygen-ui";
+import { ArrowLeft, Check } from "@wso2/oxygen-ui-icons-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -43,7 +43,6 @@ import {
   REVIEW_STEP,
   STEPS,
   deadlineText,
-  isSessionEnded,
   problemWith,
   squareProblem,
   submitFailureMessage,
@@ -57,7 +56,7 @@ import ReviewStep from "@view/documents/ReviewStep";
 const Documents = () => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const { getToken, renewToken } = useAppAuthContext();
+  const { getToken } = useAppAuthContext();
   const { id: applicationId } = useParams<{ id: string }>();
   const applications = useAppSelector((state: RootState) => state.careers.applications);
   const generation = useAppSelector((state: RootState) => state.careers.sessionGeneration);
@@ -84,11 +83,11 @@ const Documents = () => {
   // Raised to ask for the earlier submission again after it failed to load.
   const [statusAttempt, setStatusAttempt] = useState(0);
 
-  // Fills the form from the candidate's profile once it has loaded.
+  // Fills the form from the candidate's profile once it has loaded. Only fields that are still empty are filled, so
+  // what was typed meanwhile stays.
   useEffect(() => {
     if (prefilled || profileState !== State.success) return;
     setDetails((current) => detailsFromProfile(current, profile));
-    setDetailsVersion((current) => current + 1);
     setPrefilled(true);
   }, [prefilled, profile, profileState]);
 
@@ -148,20 +147,20 @@ const Documents = () => {
   const editing = Boolean(status?.submitted && status.canEdit);
   const closed = Boolean(status?.submitted && !status.canEdit);
 
-  // Whether the page is still waiting for the applications and, for an accepted offer, the profile, the document list
-  // and the earlier submission.
+  // Whether the page is still waiting for what the form is built from: the applications and, for an accepted offer, the
+  // list of documents and the earlier submission. The form is not shown before the earlier submission is known: it
+  // decides between a first submission, a change to it and neither, and holds the details a change starts from, so
+  // nothing typed before it arrives could be lost or saved over it. Only the profile loads while the form is open.
   const stillLoading =
     applicationsState === State.idle ||
     applicationsState === State.loading ||
     (eligible &&
-      (profileState === State.idle ||
-        profileState === State.loading ||
-        requirementsState === State.idle ||
-        requirementsState === State.loading ||
-        status === undefined));
+      (requirementsState === State.idle || requirementsState === State.loading || status === undefined));
 
-  // The personal email comes only from the profile and cannot be changed here, so the form waits for the profile.
+  // The personal email comes only from the profile and cannot be changed here.
   const profileReady = profileState === State.success;
+  // The form is submitted once the profile and the earlier submission are known.
+  const canSubmit = profileReady && status !== undefined && status !== null;
 
   const retryProfile = async () => {
     dispatch(loadProfile(await getToken()));
@@ -207,7 +206,7 @@ const Documents = () => {
   };
 
   const handleSubmit = async () => {
-    if (!application || !requirements || submitting) return;
+    if (!application || !requirements || submitting || !canSubmit) return;
     if (!detailsReady) {
       showDetailProblems();
       return;
@@ -215,21 +214,9 @@ const Documents = () => {
     if (!allDocumentsReady || tooLarge || !declared) return;
     setSubmitting(true);
     try {
-      const token = await getToken();
-      try {
-        await submitDocuments(token, application.id, files, details, editing);
-      } catch (error) {
-        if (!isSessionEnded(error)) throw error;
-        // The token expired while the candidate was filling in the form. A new one is got without leaving the page, so
-        // what they entered is kept, and the submission is sent once more.
-        let fresh: string;
-        try {
-          fresh = await renewToken();
-        } catch {
-          throw error;
-        }
-        await submitDocuments(fresh, application.id, files, details, editing);
-      }
+      // A token that ran out while the candidate was filling in the form is renewed by the request itself, so what they
+      // entered is kept.
+      await submitDocuments(await getToken(), application.id, files, details, editing);
       setFiles({});
       setSubmitted(true);
       // The status the application page kept is out of date now, so it is dropped and the page checks again.
@@ -259,7 +246,12 @@ const Documents = () => {
 
   return (
     <PageContainer>
-      <Button startIcon={<ArrowLeft size={16} />} onClick={backToApplication} sx={{ mb: 2, ml: -1, fontWeight: 600 }}>
+      <Button
+        variant="outlined"
+        startIcon={<ArrowLeft size={16} />}
+        onClick={backToApplication}
+        sx={{ ...pillButtonSx, mb: 2, px: 2.5 }}
+      >
         Application
       </Button>
 
@@ -292,7 +284,7 @@ const Documents = () => {
         </Callout>
       )}
 
-      {!stillLoading && eligible && !profileReady && (
+      {!stillLoading && eligible && profileState === State.failed && (
         <Stack alignItems="flex-start" gap={1.5}>
           <Typography color="text.secondary">We couldn&apos;t load your profile, which has your email.</Typography>
           <Button variant="outlined" onClick={retryProfile} sx={pillButtonSx}>
@@ -301,7 +293,7 @@ const Documents = () => {
         </Stack>
       )}
 
-      {!stillLoading && eligible && profileReady && status === null && (
+      {!stillLoading && eligible && status === null && (
         <Stack alignItems="flex-start" gap={1.5}>
           <Typography color="text.secondary">We couldn&apos;t check whether your documents were submitted.</Typography>
           <Button variant="outlined" onClick={retryStatus} sx={pillButtonSx}>
@@ -310,7 +302,7 @@ const Documents = () => {
         </Stack>
       )}
 
-      {!stillLoading && eligible && profileReady && requirementsState === State.failed && (
+      {!stillLoading && eligible && requirementsState === State.failed && (
         <Stack alignItems="flex-start" gap={1.5}>
           <Typography color="text.secondary">We couldn&apos;t load the list of documents.</Typography>
           <Button variant="outlined" onClick={() => setRequirementsState(State.idle)} sx={pillButtonSx}>
@@ -319,7 +311,7 @@ const Documents = () => {
         </Stack>
       )}
 
-      {!stillLoading && eligible && profileReady && application && requirements && submitted && (
+      {!stillLoading && eligible && application && requirements && submitted && (
         <Callout tone="success" icon={<Check size={20} color="#059669" />}>
           <Typography fontWeight={700} fontSize="0.95rem" color="text.primary">
             {editing ? "Your changes were saved." : "We received your details and documents."}
@@ -335,7 +327,7 @@ const Documents = () => {
 
       {!stillLoading &&
         eligible &&
-        profileReady &&
+        profileState !== State.failed &&
         status !== null &&
         !closed &&
         application &&
@@ -381,6 +373,7 @@ const Documents = () => {
               key={detailsVersion}
               details={details}
               onChange={setDetails}
+              applicationReady={prefilled}
               errors={showDetailErrors ? currentDetailErrors : {}}
               options={requirements}
               disabled={submitting}
@@ -423,7 +416,7 @@ const Documents = () => {
               <Button
                 variant="contained"
                 onClick={handleSubmit}
-                disabled={submitting || !detailsReady || !allDocumentsReady || tooLarge || !declared}
+                disabled={submitting || !canSubmit || !detailsReady || !allDocumentsReady || tooLarge || !declared}
                 startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
                 sx={{ ...pillButtonSx, px: 3 }}
               >

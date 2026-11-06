@@ -20,12 +20,14 @@ import { useSnackbar } from "notistack";
 
 import { useEffect, useState } from "react";
 
+import { SnackMessage } from "@root/src/config/constant";
 import { PAGE_MAX_WIDTH } from "@root/src/config/ui";
 import { useConfirmationModalContext } from "@root/src/context/DialogContext";
 import {
   formatDateForApi,
   getLeaveEntitlement,
   submitLeaveRequest,
+  submitSickLeaveRequest,
 } from "@root/src/services/leaveService";
 import { useAppSelector } from "@root/src/slices/store";
 import {
@@ -37,11 +39,13 @@ import {
   LeaveType,
   PeriodType,
 } from "@root/src/types/types";
+import { needsReason, needsSickNote, sickNoteProblem } from "@root/src/utils/leaveRules";
 import AdditionalComment from "@root/src/view/GeneralLeave/component/AdditionalComment";
 import LeaveBalanceSummary from "@root/src/view/GeneralLeave/component/LeaveBalanceSummary";
 import LeaveDateSelection from "@root/src/view/GeneralLeave/component/LeaveDateSelection";
 import LeaveSelection from "@root/src/view/GeneralLeave/component/LeaveSelection";
 import NotifyPeople from "@root/src/view/GeneralLeave/component/NotifyPeople";
+import SickNoteUpload from "@root/src/view/GeneralLeave/component/SickNoteUpload";
 
 export default function GeneralLeave() {
   const theme = useTheme();
@@ -50,6 +54,7 @@ export default function GeneralLeave() {
   const userInfo = useAppSelector((state) => state.user.userInfo);
   const userLocation = userInfo?.location ?? null;
   const email = userInfo?.workEmail ?? "";
+  const appConfig = useAppSelector((state) => state.appConfig.config);
 
   const getDefaultLeaveType = (location: string | null): LeaveType => {
     switch (location) {
@@ -78,6 +83,8 @@ export default function GeneralLeave() {
     [LeaveType.SICK]: LeaveLabel.SICK,
     [LeaveType.CASUAL]: LeaveLabel.CASUAL,
     [LeaveType.ANNUAL]: LeaveLabel.CASUAL,
+    [LeaveType.COMPASSIONATE]: LeaveLabel.COMPASSIONATE,
+    [LeaveType.OTHER_AUTHORIZED]: LeaveLabel.OTHER_AUTHORIZED,
   };
 
   const [daysSelected, setDaysSelected] = useState(0);
@@ -96,10 +103,31 @@ export default function GeneralLeave() {
   const [isDateValidating, setIsDateValidating] = useState(false);
   const [dateError, setDateError] = useState(false);
   const [balanceKey, setBalanceKey] = useState(0);
+  const [sickNote, setSickNote] = useState<File | null>(null);
+
+  const sickNoteRequired = needsSickNote(userLocation, selectedLeaveType);
+  const sickNoteLimitsLoaded = !!appConfig;
+  const sickNoteError =
+    sickNoteRequired && sickNote && appConfig
+      ? sickNoteProblem(sickNote, appConfig.sickNoteMaxBytes, appConfig.sickNoteContentTypes)
+      : "";
+  const sickNoteReady = !sickNoteRequired || (!!sickNote && sickNoteLimitsLoaded && !sickNoteError);
+  const reasonRequired = needsReason(selectedLeaveType);
+  const reasonMissing = reasonRequired && !comment.trim();
 
   useEffect(() => {
     setSelectedLeaveType(getDefaultLeaveType(userLocation));
   }, [userLocation]);
+
+  // The reason for Other Authorized Leave is for the lead, so it is never public.
+  useEffect(() => {
+    if (reasonRequired) setIsPublicComment(false);
+  }, [reasonRequired]);
+
+  // A sick note belongs to a sick leave request only.
+  useEffect(() => {
+    if (!sickNoteRequired) setSickNote(null);
+  }, [sickNoteRequired]);
 
   const executeSubmit = async (periodType: PeriodType, isMorningLeave: boolean | null) => {
     try {
@@ -117,7 +145,7 @@ export default function GeneralLeave() {
         comment,
         leaveType: selectedLeaveType as any,
         emailRecipients: filteredEmailRecipients,
-        isPublicComment,
+        isPublicComment: reasonRequired ? false : isPublicComment,
       };
 
       if (userLocation === EmployeeLocation.FR || userLocation === EmployeeLocation.ES) {
@@ -142,9 +170,18 @@ export default function GeneralLeave() {
         } catch {}
       }
 
-      await submitLeaveRequest(payload);
+      if (sickNoteRequired && sickNote) {
+        await submitSickLeaveRequest(payload, sickNote);
+      } else {
+        await submitLeaveRequest(payload);
+      }
 
-      enqueueSnackbar("Leave request submitted successfully!", { variant: "success" });
+      enqueueSnackbar(
+        selectedLeaveType === LeaveType.OTHER_AUTHORIZED
+          ? SnackMessage.success.submitOtherAuthorizedLeaveMessage
+          : "Leave request submitted successfully!",
+        { variant: "success" },
+      );
       setBalanceKey((k) => k + 1);
 
       setStartDate(null);
@@ -153,6 +190,7 @@ export default function GeneralLeave() {
       setSelectedDayPortion(null);
       setComment("");
       setIsPublicComment(false);
+      setSickNote(null);
     } catch (error: any) {
       const errorMessage =
         error?.response?.data?.message || "Failed to submit leave request. Please try again.";
@@ -185,6 +223,16 @@ export default function GeneralLeave() {
 
     if (!selectedLeaveType) {
       enqueueSnackbar("Please select a leave type", { variant: "error" });
+      return;
+    }
+
+    if (!sickNoteReady) {
+      enqueueSnackbar("Please attach a valid sick note", { variant: "error" });
+      return;
+    }
+
+    if (reasonMissing) {
+      enqueueSnackbar("Please tell your lead why you need this leave", { variant: "error" });
       return;
     }
 
@@ -221,7 +269,9 @@ export default function GeneralLeave() {
 
     showConfirmation(
       "Do you want to submit this leave?",
-      `This will submit a ${leaveLabel} request for ${workingDays} working day${workingDays !== 1 ? "s" : ""} (${dateRange}, ${portionLabel}).`,
+      selectedLeaveType === LeaveType.OTHER_AUTHORIZED
+        ? `This will send an ${leaveLabel} request for ${workingDays} working day${workingDays !== 1 ? "s" : ""} (${dateRange}, ${portionLabel}) to your lead for approval.`
+        : `This will submit a ${leaveLabel} request for ${workingDays} working day${workingDays !== 1 ? "s" : ""} (${dateRange}, ${portionLabel}).`,
       ConfirmationType.send,
       () => executeSubmit(periodType, isMorningLeave),
       "Yes",
@@ -312,6 +362,19 @@ export default function GeneralLeave() {
         </Stack>
       </Box>
 
+      {/* Sick note (France sick leave only) */}
+      {sickNoteRequired && (
+        <Box sx={sectionCard}>
+          <SickNoteUpload
+            file={sickNote}
+            problem={sickNoteError}
+            maxBytes={appConfig?.sickNoteMaxBytes ?? 0}
+            contentTypes={appConfig?.sickNoteContentTypes ?? []}
+            onChange={setSickNote}
+          />
+        </Box>
+      )}
+
       {/* Notify & Comment Section */}
       <Box sx={sectionCard}>
         <Stack gap={3}>
@@ -328,6 +391,7 @@ export default function GeneralLeave() {
             onCommentChange={setComment}
             isPublicComment={isPublicComment}
             onPublicCommentChange={setIsPublicComment}
+            reasonRequired={reasonRequired}
           />
         </Stack>
       </Box>
@@ -343,14 +407,16 @@ export default function GeneralLeave() {
         }}
       >
         <Typography variant="caption" sx={{ color: theme.palette.customText.primary.p4.active }}>
-          {isPublicComment
-            ? "Your comment will be visible to all email recipients."
-            : "Your comment will be visible to all email recipients except the WSO2 Vacation Group."}
+          {reasonRequired
+            ? "Your reason goes to your lead for approval and is never made public."
+            : isPublicComment
+              ? "Your comment will be visible to all email recipients."
+              : "Your comment will be visible to all email recipients except the WSO2 Vacation Group."}
         </Typography>
         <Button
           variant="contained"
           onClick={handleSubmit}
-          disabled={isSubmitting || isDateValidating}
+          disabled={isSubmitting || isDateValidating || !sickNoteReady || reasonMissing}
           startIcon={
             isSubmitting || isDateValidating ? (
               <CircularProgress size={18} color="inherit" />

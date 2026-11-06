@@ -23,9 +23,11 @@ import PreLoader from "@component/common/PreLoader";
 import SessionWarningDialog from "@component/common/SessionWarningDialog";
 import { setUserAuthData } from "@slices/authSlice/auth";
 import { useAppDispatch } from "@slices/store";
+import { noteSignInStarted, setTokenRenewer } from "@utils/profileService";
 
 type AuthContextType = {
-  appSignIn: () => void;
+  // Opens the sign-in page; the email, when given, is filled in there.
+  appSignIn: (email?: string) => void;
   appSignOut: () => void;
   // False for visitors browsing without an account.
   isSignedIn: boolean;
@@ -79,9 +81,13 @@ const AppAuthProvider = (props: { children: React.ReactNode }) => {
     loadUser();
   }, [isAuthenticated, userLoaded, getBasicUserInfo, getDecodedIDToken, dispatch, signOut]);
 
-  const appSignIn = useCallback(() => {
-    signIn();
-  }, [signIn]);
+  const appSignIn = useCallback(
+    (email?: string) => {
+      noteSignInStarted();
+      signIn(email ? { login_hint: email } : undefined);
+    },
+    [signIn],
+  );
 
   const appSignOut = useCallback(() => {
     setUserLoaded(false);
@@ -118,7 +124,7 @@ const AppAuthProvider = (props: { children: React.ReactNode }) => {
   const sdk = useRef({ getAccessToken, refreshAccessToken, trySignInSilently });
   sdk.current = { getAccessToken, refreshAccessToken, trySignInSilently };
 
-  // Guests browse and apply without a token; calls made on their behalf send no credentials.
+  // A guest has no token, so the call gets an empty one.
   const getToken = useCallback(async () => {
     if (!isAuthenticated) return "";
     try {
@@ -139,20 +145,26 @@ const AppAuthProvider = (props: { children: React.ReactNode }) => {
     return sdk.current.getAccessToken();
   }, []);
 
+  // The calls to the backend renew the access token through this when it has run out.
+  useEffect(() => {
+    setTokenRenewer(renewToken);
+    return () => setTokenRenewer(null);
+  }, [renewToken]);
+
   const authContext: AuthContextType = useMemo(
     () => ({ appSignIn, appSignOut, isSignedIn: isAuthenticated, getToken, renewToken }),
     [appSignIn, appSignOut, isAuthenticated, getToken, renewToken],
   );
 
   if (isLoading) {
-    return <PreLoader isLoading message="Setting up your Candidate Passport ..." />;
+    return <PreLoader isLoading message="Authenticating..." />;
   }
 
   return (
     <AuthContext.Provider value={authContext}>
       <SessionWarningDialog open={sessionWarningOpen} handleContinue={handleContinue} appSignOut={appSignOut} />
       {isAuthenticated && !userLoaded ? (
-        <PreLoader isLoading message="Setting up your Candidate Passport ..." />
+        <PreLoader isLoading message="Authenticating..." />
       ) : (
         props.children
       )}

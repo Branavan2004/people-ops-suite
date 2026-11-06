@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import wso2/careers_app.apply;
+import wso2/careers_app.types;
 
 import ballerina/http;
 import ballerina/lang.value;
@@ -40,7 +40,7 @@ const MAX_UNIVERSITY_LENGTH = 255;
 
 # The type of file the first bytes show: "pdf", "jpg" or "png". Nil for anything else.
 public isolated function fileTypeOf(byte[] content) returns string? {
-    if apply:isPdf(content) {
+    if types:isPdf(content) {
         return "pdf";
     }
     if content.length() >= 3 && content[0] == 0xFF && content[1] == 0xD8 && content[2] == 0xFF {
@@ -122,7 +122,7 @@ isolated function compactPhone(string phone) returns string => re `[\s-]`.replac
 // The phone number in international format without spaces, or nil when it is not a valid number.
 isolated function normalisedPhone(string phone) returns string? {
     string compact = compactPhone(phone.trim());
-    return apply:isValidPhone(compact) ? compact : ();
+    return types:isValidPhone(compact) ? compact : ();
 }
 
 isolated function isOneOf(string value, string[] options) returns boolean => options.indexOf(value) is int;
@@ -220,7 +220,7 @@ isolated function validateDetails(PersonalDetails details) returns PersonalDetai
         }
         normalisedLand = land;
     }
-    if !apply:isValidEmail(personalEmail) {
+    if !types:isValidEmail(personalEmail) {
         return "Enter a valid personal email address.";
     }
     if !isOneOf(businessInterest, YES_NO) {

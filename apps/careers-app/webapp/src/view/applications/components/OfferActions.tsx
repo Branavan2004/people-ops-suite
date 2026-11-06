@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Button, Stack, Typography } from "@mui/material";
+import { Button, Stack, Typography } from "@wso2/oxygen-ui";
 
 import { pillButtonSx } from "@utils/styles";
 

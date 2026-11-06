@@ -17,18 +17,41 @@
 import ballerina/test;
 
 @test:Config {}
-function numericJobIdsAreAccepted() {
-    test:assertTrue(isValidJobId("258"));
-    test:assertTrue(isValidJobId("7"));
+function numericIdsAreAccepted() {
+    test:assertTrue(isValidNumericId("258"));
+    test:assertTrue(isValidNumericId("7"));
 }
 
 @test:Config {}
-function pathTraversalAndOddJobIdsAreRejected() {
+function pathTraversalAndOddIdsAreRejected() {
     string[] rejected = ["", "..", "../org-structure", "..%2Forg-structure", "1/2", "1 2", "1?x=y", "%2e%2e", "saved",
         "org-structure", "12a", "-1"];
-    foreach string jobId in rejected {
-        test:assertFalse(isValidJobId(jobId), string `Job id "${jobId}" should be rejected`);
+    foreach string id in rejected {
+        test:assertFalse(isValidNumericId(id), string `Id "${id}" should be rejected`);
     }
+}
+
+@test:Config {}
+function invalidEmailsAreRejected() {
+    test:assertTrue(isValidEmail("name@example.com"));
+    foreach string email in ["", "abc", "a@b", "@example.com", "a b@example.com", "a@@example.com", "a@.example.com"] {
+        test:assertFalse(isValidEmail(email), string `Email "${email}"`);
+    }
+}
+
+@test:Config {}
+function phoneNumbersMustBeInInternationalFormat() {
+    test:assertTrue(isValidPhone("+94771234567"));
+    foreach string phone in ["0771234567", "94771234567", "+0771234567", "+94 77 123 4567", "+9477abc", "+1"] {
+        test:assertFalse(isValidPhone(phone), string `Phone "${phone}"`);
+    }
+}
+
+@test:Config {}
+function aPdfIsRecognisedByItsFirstBytes() {
+    test:assertTrue(isPdf([0x25, 0x50, 0x44, 0x46, 0x2d]));
+    test:assertFalse(isPdf([0x25, 0x50]));
+    test:assertFalse(isPdf([0x50, 0x4b, 0x03, 0x04]));
 }
 
 @test:Config {}

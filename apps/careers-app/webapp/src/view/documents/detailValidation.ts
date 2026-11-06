@@ -188,7 +188,7 @@ export const summarySectionsOf = (d: PersonalDetails): { title: string; rows: [s
       ["Residential address", d.homeAddress],
       ["Temporary address", d.temporaryAddress || "None"],
       ["University", d.university],
-      ["Interest in any commercial or business pursuit", d.businessInterest],
+      ["Interest in any business pursuit", d.businessInterest],
     ],
   },
   {

@@ -14,18 +14,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { Box, Checkbox, Chip, FormControlLabel, Link, Stack, Typography } from "@mui/material";
+import { Box, Checkbox, FormControlLabel, Link, Stack, Typography } from "@wso2/oxygen-ui";
+
+import { Fragment } from "react";
 
 import type { DocumentRequirements, PersonalDetails } from "@/types/types";
 import Callout from "@component/common/Callout";
 import { summarySectionsOf } from "@view/documents/detailValidation";
-import {
-  DOCUMENTS_STEP,
-  PHOTOS_STEP,
-  STATUS_COLORS,
-  formatSize,
-  statusOf,
-} from "@view/documents/documentFiles";
+import { DOCUMENTS_STEP, PHOTOS_STEP, formatSize, statusOf } from "@view/documents/documentFiles";
+import { StatusTag } from "@view/documents/FormInputs";
 
 interface ReviewStepProps {
   requirements: DocumentRequirements;
@@ -60,6 +57,13 @@ const ReviewStep = ({
   // A document counts as sent when a file was chosen now or one was sent earlier.
   const isSent = (key: string) => Boolean(files[key]) || sentKeys.includes(key);
   const missingDocuments = requirements.documents.filter((document) => document.required && !isSent(document.key));
+  // What is still missing, each opening the step where it is fixed.
+  const missingIn = (group: string) => missingDocuments.some((document) => document.group === group);
+  const missingParts: { label: string; open: () => void }[] = [
+    ...(!detailsReady ? [{ label: "personal details", open: onShowDetailProblems }] : []),
+    ...(missingIn("documents") ? [{ label: "documents", open: () => onGoTo(DOCUMENTS_STEP) }] : []),
+    ...(missingIn("photos") ? [{ label: "photos", open: () => onGoTo(PHOTOS_STEP) }] : []),
+  ];
   return (
     <>
       {(!detailsReady || missingDocuments.length > 0) && (
@@ -68,32 +72,18 @@ const ReviewStep = ({
             <Typography fontWeight={700} fontSize="0.95rem" color="text.primary">
               Submit unlocks when everything is complete
             </Typography>
-            {!detailsReady && (
-              <Typography fontSize="0.9rem" color="text.primary">
-                Some personal details are missing.{" "}
-                <Link component="button" type="button" onClick={onShowDetailProblems} sx={{ verticalAlign: "baseline" }}>
-                  Go to personal details
-                </Link>
-              </Typography>
-            )}
-            {missingDocuments.length > 0 && (
-              <Box>
-                <Typography fontSize="0.9rem" color="text.primary" mb={0.75}>
-                  Still to add:
-                </Typography>
-                <Stack direction="row" flexWrap="wrap" gap={1}>
-                  {missingDocuments.map((document) => (
-                    <Chip
-                      key={document.key}
-                      label={document.label}
-                      variant="outlined"
-                      clickable
-                      onClick={() => onGoTo(document.group === "photos" ? PHOTOS_STEP : DOCUMENTS_STEP)}
-                    />
-                  ))}
-                </Stack>
-              </Box>
-            )}
+            <Typography fontSize="0.9rem" color="text.primary">
+              Some{" "}
+              {missingParts.map((part, index) => (
+                <Fragment key={part.label}>
+                  {index > 0 && (index === missingParts.length - 1 ? " and " : ", ")}
+                  <Link component="button" type="button" onClick={part.open} sx={{ verticalAlign: "baseline" }}>
+                    {part.label}
+                  </Link>
+                </Fragment>
+              ))}{" "}
+              are missing.
+            </Typography>
           </Callout>
         </Box>
       )}
@@ -126,10 +116,8 @@ const ReviewStep = ({
             <Typography fontSize="0.9rem" color="text.primary">
               {document.label}
             </Typography>
-            <Chip
-              size="small"
-              variant="outlined"
-              color={STATUS_COLORS[statusOf(isSent(document.key), undefined)]}
+            <StatusTag
+              status={statusOf(isSent(document.key), undefined)}
               label={
                 files[document.key]
                   ? "Complete"

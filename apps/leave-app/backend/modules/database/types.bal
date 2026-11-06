@@ -74,6 +74,67 @@ public type LeaveFilter record {|
 # [Database] Leave type.
 public type Leave record {|
     # Leave ID
+    int id;
+    # Employee email
+    string email;
+    # Leave type
+    string? leaveType;
+    # Leave period type
+    string? periodType;
+    # Copy email list
+    string? copyEmailList;
+    # Notify everyone
+    boolean? notifyEveryone;
+    # Submit comment
+    string? submitComment;
+    # Cancel comment
+    string? cancelComment;
+    # Created date
+    string? createdDate;
+    # Updated date
+    string? updatedDate;
+    # Email ID
+    string? emailId;
+    # Email subject
+    string? emailSubject;
+    # Leave start date
+    string startDate;
+    # Leave end date
+    string endDate;
+    # Leave start half. 0 is the first half, 1 is the second half
+    int? startHalf;
+    # Leave end half
+    boolean? isEndHalf;
+    # Leave canceled date
+    string? canceledDate;
+    # Leave number of days
+    float? numberOfDays;
+    # Leave is public comment
+    boolean? isPublicComment;
+    # Leave calendar event ID
+    string? calendarEventId;
+    # Employee location
+    string? location;
+    # Status
+    Status? status;
+    # Approver email
+    string? approverEmail;
+    # Reason given by the approver for rejecting the leave
+    string? rejectionReason;
+    # Whether a sick note was submitted with the leave. Filled from `has_sick_note` by `toLeave`
+    boolean hasSickNote = false;
+    # When the sick note was deleted, if it was
+    string? sickNoteDeletedOn = ();
+|};
+
+# A leave as `getCommonLeaveQuery` returns it. `toLeave` turns it into a `Leave`.
+#
+# The fields are declared here rather than taken from `Leave` with `*Leave`, because type inclusion does not carry
+# field annotations, and the sql module needs the `@sql:Column` annotation on this type to map a column such as
+# `leave_type` to `leaveType`. MySQL has no boolean type, so `has_sick_note` arrives as 0 or 1, and the sql module
+# maps only BIT and BOOLEAN columns to `boolean`.
+type LeaveRow record {|
+    # Leave ID
     @sql:Column {name: "id"}
     int id;
     # Employee email
@@ -136,13 +197,107 @@ public type Leave record {|
     # Employee location
     @sql:Column {name: "location"}
     string? location;
-    # Status 
+    # Status
     @sql:Column {name: "status"}
     Status? status;
     # Approver email
     @sql:Column {name: "approver_email"}
     string? approverEmail;
+    # Reason given by the approver for rejecting the leave
+    @sql:Column {name: "rejection_reason"}
+    string? rejectionReason;
+    # When the sick note was deleted, if it was
+    @sql:Column {name: "sick_note_deleted_on"}
+    string? sickNoteDeletedOn;
+    # 1 when a sick note was submitted with the leave, otherwise 0
+    @sql:Column {name: "has_sick_note"}
+    int sickNoteFlag;
 |};
+
+# Encrypted sick note to save with a leave.
+public type SickNoteInput record {|
+    # AES-256-GCM ciphertext followed by the authentication tag
+    byte[] content;
+    # 12-byte initialization vector
+    byte[] iv;
+    # Id of the key that encrypted the note
+    int keyId;
+    # Content type detected from the file content
+    string contentType;
+    # Size of the original file, in bytes
+    int sizeBytes;
+    # Email of the employee who uploaded the note
+    string uploadedBy;
+|};
+
+# Sick note as it is stored, without its content, with the email of the employee the leave belongs to.
+public type StoredSickNote record {|
+    # Attachment ID
+    @sql:Column {name: "id"}
+    int id;
+    # Leave ID
+    @sql:Column {name: "leave_id"}
+    int leaveId;
+    # Email of the employee the leave belongs to
+    @sql:Column {name: "email"}
+    string email;
+    # Id of the key that encrypted the note
+    @sql:Column {name: "key_id"}
+    int keyId;
+    # Content type of the original file
+    @sql:Column {name: "content_type"}
+    string contentType;
+    # When the note was deleted, if it was
+    @sql:Column {name: "deleted_at"}
+    string? deletedAt;
+|};
+
+# Encrypted content of a stored sick note.
+public type SickNoteContent record {|
+    # Encrypted content, or nil once the note is deleted
+    @sql:Column {name: "content"}
+    byte[]? content;
+    # Initialization vector, or nil once the note is deleted
+    @sql:Column {name: "iv"}
+    byte[]? iv;
+|};
+
+# Sick leave in France with a sick note, as listed for People Ops. Holds no note content.
+public type SickNoteSummary record {|
+    # Leave ID
+    @sql:Column {name: "leave_id"}
+    int leaveId;
+    # Email of the employee
+    @sql:Column {name: "email"}
+    string email;
+    # Leave start date
+    @sql:Column {name: "start_date"}
+    string startDate;
+    # Leave end date
+    @sql:Column {name: "end_date"}
+    string endDate;
+    # Number of leave days
+    @sql:Column {name: "num_days"}
+    float numberOfDays;
+    # Leave status
+    @sql:Column {name: "status"}
+    Status status;
+    # When the note was uploaded
+    @sql:Column {name: "uploaded_at"}
+    string uploadedAt;
+    # When the note was deleted, if it was
+    @sql:Column {name: "deleted_at"}
+    string? deletedAt;
+    # Size of the original file, in bytes
+    @sql:Column {name: "size_bytes"}
+    int sizeBytes;
+    # Content type of the original file
+    @sql:Column {name: "content_type"}
+    string contentType;
+|};
+
+# Error returned when a leave request is no longer pending, so it cannot be decided.
+public type LeaveNotPendingError distinct error;
 
 # Day record.
 public type Day record {|

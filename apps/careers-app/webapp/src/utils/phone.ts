@@ -26,6 +26,15 @@ export const COUNTRY_OPTIONS = getCountries()
 export const toE164 = (dialCode: string, input: string): string =>
   `${dialCode}${input.replace(/\D/g, "").replace(/^0+/, "")}`;
 
+// The number from a chosen country and the digits typed, in that format. Digits typed before a country is chosen are
+// returned as typed, so the check of the number asks for the country instead of the digits being dropped; the text is
+// empty only while nothing was typed.
+export const phoneFrom = (countryIso: string, national: string): string => {
+  if (!national) return "";
+  const dialCode = COUNTRY_OPTIONS.find((option) => option.iso === countryIso)?.dialCode ?? "";
+  return dialCode ? toE164(dialCode, national) : national;
+};
+
 // Splits a number in that format into its country and the digits after the dialing code, or null when it cannot be read.
 export const splitE164 = (value: string): { countryIso: string; national: string } | null => {
   const parsed = parsePhoneNumberFromString(value);
@@ -33,6 +42,14 @@ export const splitE164 = (value: string): { countryIso: string; national: string
   const countryIso =
     parsed.country ?? getCountries().find((iso) => getCountryCallingCode(iso) === parsed.countryCallingCode);
   return countryIso ? { countryIso, national: parsed.nationalNumber } : null;
+};
+
+// What a phone input shows for a stored value: the country and digits of a number in that format, or, for digits kept
+// without a country (see phoneFrom), the digits with no country so the default can be taken, or nothing.
+export const phoneInputStart = (value: string, defaultCountry: string): { countryIso: string; national: string } => {
+  const split = splitE164(value);
+  if (split) return split;
+  return /^\d+$/.test(value) ? { countryIso: "", national: value } : { countryIso: defaultCountry, national: "" };
 };
 
 // Whether a value is in that format: "+", then 2 to 15 digits, not starting with 0.

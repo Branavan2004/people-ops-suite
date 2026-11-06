@@ -18,3 +18,7 @@
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
 export const isValidEmail = (email: string): boolean => email.length <= 254 && EMAIL_PATTERN.test(email.trim());
+
+// The email in the ?email= value of a link. A "+" the sender did not encode as %2B is read as a space, which an email
+// cannot contain, so each space is put back as "+" and a plus-addressed email keeps its sign-in hint.
+export const emailFromLink = (value: string | null): string => (value ?? "").trim().replace(/ /g, "+");

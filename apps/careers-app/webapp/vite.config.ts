@@ -16,10 +16,15 @@
 
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
+  test: {
+    // The Oxygen UI packages, and the MUI X packages it brings, import CSS files, which Vite has to process; Node cannot
+    // load them on its own.
+    server: { deps: { inline: [/@wso2\/oxygen-ui/, /@mui\/x-/] } },
+  },
   server: {
     port: 3000,
   },

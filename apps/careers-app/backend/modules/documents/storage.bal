@@ -24,8 +24,12 @@ const decimal STORAGE_TIMEOUT_SECONDS = 60;
 
 const STORAGE_API_VERSION = "2023-11-03";
 
+// The address the client is given while there are no storage settings. It is never called, because the routes that use
+// storage are closed in that case.
+const CLOSED_STORAGE_URL = "http://storage.invalid";
+
 // Azure does not accept a chunked body, so the client speaks HTTP/1.1 and is told never to chunk.
-final http:Client storageClient = check new (storageConfig.baseUrl, {
+final http:Client storageClient = check new (storageConfig.baseUrl == "" ? CLOSED_STORAGE_URL : storageConfig.baseUrl, {
     httpVersion: http:HTTP_1_1,
     timeout: STORAGE_TIMEOUT_SECONDS,
     http1Settings: {chunking: http:CHUNKING_NEVER}

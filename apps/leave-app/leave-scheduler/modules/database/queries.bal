@@ -53,3 +53,64 @@ isolated function markSabbaticalReminderSentQuery(int leaveId) returns sql:Param
     WHERE
         id = ${leaveId} AND sabbatical_reminder_sent_on IS NULL
 `;
+
+# Query to fetch pending Other Authorized Leaves due for an approval reminder: never reminded and submitted on or
+# before the first-reminder cutoff, or reminded on or before the repeat-reminder cutoff.
+#
+# + firstReminderCutoff - Latest submission date for a first reminder (yyyy-mm-dd)
+# + repeatReminderCutoff - Latest previous-reminder date for a repeat reminder (yyyy-mm-dd)
+# + return - Select query
+isolated function getDueApprovalRemindersQuery(string firstReminderCutoff, string repeatReminderCutoff)
+    returns sql:ParameterizedQuery => `
+    SELECT
+        id,
+        email,
+        approver_email,
+        DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+        DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+        num_days,
+        DATE_FORMAT(created_date, '%Y-%m-%d') AS created_on
+    FROM
+        leave_submissions
+    WHERE
+        leave_type = 'other_authorized'
+        AND status = 'PENDING'
+        AND (
+            (approval_reminder_sent_on IS NULL AND DATE(created_date) <= ${firstReminderCutoff})
+            OR (approval_reminder_sent_on IS NOT NULL AND DATE(approval_reminder_sent_on) <= ${repeatReminderCutoff})
+        )
+    ORDER BY
+        created_date ASC
+`;
+
+# Query to record that an approval reminder has been sent for a leave that is still pending.
+#
+# + leaveId - Leave id
+# + return - Update query
+isolated function markApprovalReminderSentQuery(int leaveId) returns sql:ParameterizedQuery => `
+    UPDATE
+        leave_submissions
+    SET
+        approval_reminder_sent_on = CURRENT_TIMESTAMP
+    WHERE
+        id = ${leaveId} AND status = 'PENDING'
+`;
+
+# Query to clear the encrypted content of sick notes whose leave ended before the cutoff, or whose leave was
+# cancelled. The row is kept, with `deleted_at` set, so the history can still say a note was provided and deleted.
+#
+# + endedBefore - Leaves that ended before this date (yyyy-mm-dd) have their sick note cleared
+# + return - Update query
+isolated function deleteExpiredSickNotesQuery(string endedBefore) returns sql:ParameterizedQuery => `
+    UPDATE
+        leave_attachments a
+    JOIN
+        leave_submissions l ON l.id = a.leave_id
+    SET
+        a.content = NULL,
+        a.iv = NULL,
+        a.deleted_at = CURRENT_TIMESTAMP
+    WHERE
+        a.deleted_at IS NULL
+        AND (DATE(l.end_date) < ${endedBefore} OR l.status = 'CANCELLED')
+`;
